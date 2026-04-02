@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import BuyButton from '@/app/components/BuyButton';
 import SessionPreview from '@/app/components/SessionPreview';
 import RallyVisionPageShell from '@/app/components/RallyVisionPageShell';
@@ -10,7 +10,7 @@ export default async function ClipPage({
 }) {
   const { slug } = await params;
 
-  const { data: clip, error } = await supabase
+  const { data: clip, error } = await supabaseAdmin
     .from('clips')
     .select('*')
     .eq('slug', slug)

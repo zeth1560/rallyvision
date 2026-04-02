@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing clipId' }, { status: 400 });
     }
 
-    const { data: clip, error } = await supabase
+    const { data: clip, error } = await supabaseAdmin
       .from('clips')
       .select('*')
       .eq('id', clipId)

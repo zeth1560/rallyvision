@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createSignedDownloadUrl } from '@/lib/s3';
 
 const uuidRegex =
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: order, error: orderError } = await supabase
+    const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .select('id')
       .eq('clip_id', clipId)
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: clip, error: clipError } = await supabase
+    const { data: clip, error: clipError } = await supabaseAdmin
       .from('clips')
       .select('id, title, s3_key')
       .eq('id', clipId)

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createSignedDownloadUrl } from '@/lib/s3';
 
 const slugRegex = /^[a-zA-Z0-9_-]+$/;
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: clip, error: clipError } = await supabase
+    const { data: clip, error: clipError } = await supabaseAdmin
       .from('clips')
       .select('id, slug, title, published, s3_key')
       .eq('slug', slug)

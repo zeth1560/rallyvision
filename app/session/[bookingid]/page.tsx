@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
 import RallyVisionPageShell from '@/app/components/RallyVisionPageShell';
 
@@ -17,7 +17,7 @@ export default async function SessionPage({
 }) {
   const { bookingid } = await params;
 
-  const { data: clips, error } = await supabase
+  const { data: clips, error } = await supabaseAdmin
     .from('clips')
     .select('id, slug, title, price_cents')
     .eq('booking_id', bookingid)

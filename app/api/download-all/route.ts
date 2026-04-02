@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import archiver from 'archiver';
 import { PassThrough } from 'stream';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+
+export const runtime = 'nodejs';
 
 const stripeSessionRegex = /^cs_(test|live)_[A-Za-z0-9]+$/;
 
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: orders, error: ordersError } = await supabase
+    const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
       .select('clip_id')
       .eq('stripe_checkout_session_id', sessionId)
@@ -59,9 +61,21 @@ export async function GET(request: Request) {
       );
     }
 
-    const clipIds = orders.map((order) => order.clip_id);
+    const clipIds = orders
+      .map((order) => order.clip_id)
+      .filter(
+        (clipId): clipId is string =>
+          typeof clipId === 'string' && clipId.trim().length > 0
+      );
 
-    const { data: clips, error: clipsError } = await supabase
+    if (clipIds.length === 0) {
+      return NextResponse.json(
+        { error: 'No valid purchased clip IDs found' },
+        { status: 404 }
+      );
+    }
+
+    const { data: clips, error: clipsError } = await supabaseAdmin
       .from('clips')
       .select('id, title, slug, s3_key')
       .in('id', clipIds);
@@ -88,14 +102,13 @@ export async function GET(request: Request) {
 
     archive.pipe(nodeStream);
 
-    const response = new Response(nodeStream as any, {
+    const response = new Response(nodeStream as unknown as BodyInit, {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': 'attachment; filename="rallyvision-clips.zip"',
       },
     });
 
-    // Start appending files asynchronously after response is prepared
     (async () => {
       try {
         for (const clip of clips) {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const stripeSessionRegex = /^cs_(test|live)_[A-Za-z0-9]+$/;
 
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: orders, error: ordersError } = await supabase
+    const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
       .select('clip_id, email, stripe_checkout_session_id, status')
       .eq('stripe_checkout_session_id', sessionId)
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
     const clipIds = orders.map((order) => order.clip_id);
 
-    const { data: clips, error: clipsError } = await supabase
+    const { data: clips, error: clipsError } = await supabaseAdmin
       .from('clips')
       .select('id, title, slug, booking_id')
       .in('id', clipIds);
