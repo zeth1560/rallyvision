@@ -36,10 +36,10 @@ export async function sendPurchaseConfirmationEmail({
   const { data, error } = await resend.emails.send({
     from: process.env.EMAIL_FROM!,
     to,
-    subject: 'Your RallyVision clips are ready',
+    subject: 'Your ReplayTrove clips are ready',
     html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-        <h1>Your RallyVision purchase is complete</h1>
+        <h1>Your ReplayTrove purchase is complete</h1>
         <p>Thanks for your purchase. Your clips are ready.</p>
 
         <p>

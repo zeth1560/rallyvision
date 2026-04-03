@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
-import RallyVisionPageShell from '@/app/components/RallyVisionPageShell';
+import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
+import { resolvePricesForClips } from '@/lib/pricing';
 
 function getBookingDisplay(bookingId: string) {
   if (bookingId === 'test-booking-001') {
@@ -19,7 +20,7 @@ export default async function SessionPage({
 
   const { data: clips, error } = await supabaseAdmin
     .from('clips')
-    .select('id, slug, title, price_cents')
+    .select('id, slug, title, price_cents, club_id, court_id')
     .eq('booking_id', bookingid)
     .eq('published', true)
     .order('created_at', { ascending: true });
@@ -28,25 +29,34 @@ export default async function SessionPage({
 
   if (error) {
     return (
-      <RallyVisionPageShell
+      <ReplayTrovePageShell
         title={bookingDisplay}
         subtitle="Browse your clips, add your favorites, and check out once."
       >
         <p>Could not load clips.</p>
-      </RallyVisionPageShell>
+      </ReplayTrovePageShell>
     );
   }
 
+  const resolvedClips = await resolvePricesForClips(clips || []);
+
+  const clipsForGrid = resolvedClips.map((clip) => ({
+    id: clip.id,
+    slug: clip.slug,
+    title: clip.title,
+    price_cents: clip.resolved_price_cents,
+  }));
+
   return (
-    <RallyVisionPageShell
+    <ReplayTrovePageShell
       title={bookingDisplay}
       subtitle="Browse your clips, add your favorites, and check out once."
     >
       <SessionClipGrid
-        clips={clips || []}
+        clips={clipsForGrid}
         bookingId={bookingid}
         bookingDisplay={bookingDisplay}
       />
-    </RallyVisionPageShell>
+    </ReplayTrovePageShell>
   );
 }

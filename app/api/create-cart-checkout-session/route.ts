@@ -1,170 +1,149 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { resolvePricesForClips } from '@/lib/pricing';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2026-03-25.dahlia',
+});
 
-type RequestBody = {
-  clipIds?: string[];
-  bookingId?: string;
+type ClipRow = {
+  id: string;
+  slug: string | null;
+  title: string | null;
+  price_cents: number | null;
+  club_id: string | null;
+  court_id: string | null;
+  booking_id: string | null;
+  published: boolean | null;
 };
 
-const uuidRegex =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as RequestBody;
-    const rawClipIds = body.clipIds;
-    const clientBookingId = body.bookingId;
+    const body = await request.json();
 
-    if (!rawClipIds || !Array.isArray(rawClipIds) || rawClipIds.length === 0) {
-      return NextResponse.json(
-        { error: 'No clip IDs provided' },
-        { status: 400 }
-      );
-    }
+    const clipIdsRaw = Array.isArray(body?.clipIds) ? body.clipIds : [];
+    const bookingId =
+      typeof body?.bookingId === 'string' ? body.bookingId.trim() : '';
 
-    const clipIds = Array.from(
-      new Set(
-        rawClipIds
-          .filter((id): id is string => typeof id === 'string')
-          .map((id) => id.trim())
-          .filter(Boolean)
-      )
-    );
+    const clipIds = clipIdsRaw
+  .filter((value: unknown): value is string => typeof value === 'string')
+  .map((value: string) => value.trim())
+  .filter((value: string) => value.length > 0);
 
     if (clipIds.length === 0) {
       return NextResponse.json(
-        { error: 'No valid clip IDs provided' },
+        { error: 'No clip IDs were provided.' },
         { status: 400 }
       );
     }
 
-    const hasInvalidClipId = clipIds.some((id) => !uuidRegex.test(id));
-
-    if (hasInvalidClipId) {
-      return NextResponse.json(
-        { error: 'One or more clip IDs are invalid' },
-        { status: 400 }
-      );
-    }
-
-    const { data: clips, error } = await supabaseAdmin
+    const { data: clipsData, error: clipsError } = await supabaseAdmin
       .from('clips')
-      .select('id, slug, title, price_cents, booking_id, published')
+      .select(
+        'id, slug, title, price_cents, club_id, court_id, booking_id, published'
+      )
       .in('id', clipIds)
       .eq('published', true);
 
-    if (error) {
-      console.error('Supabase clip lookup error:', error);
-
+    if (clipsError) {
       return NextResponse.json(
-        { error: 'Failed to load selected clips' },
+        { error: clipsError.message },
         { status: 500 }
       );
     }
 
-    if (!clips || clips.length === 0) {
+    const clips = (clipsData ?? []) as ClipRow[];
+
+    if (clips.length === 0) {
       return NextResponse.json(
-        { error: 'No valid clips found' },
+        { error: 'No purchasable clips were found.' },
         { status: 404 }
       );
     }
 
-    if (clips.length !== clipIds.length) {
-      return NextResponse.json(
-        { error: 'Some selected clips were not found or are not published' },
-        { status: 400 }
-      );
-    }
+    const resolvedClips = await resolvePricesForClips(clips);
 
-    const bookingIds = Array.from(
-      new Set(
-        clips
-          .map((clip) => clip.booking_id)
-          .filter(
-            (bookingId): bookingId is string =>
-              typeof bookingId === 'string' && bookingId.trim().length > 0
-          )
-      )
+    const totalPriceCents = resolvedClips.reduce(
+      (sum, clip) => sum + (clip.resolved_price_cents ?? 0),
+      0
     );
 
-    if (bookingIds.length !== 1) {
-      return NextResponse.json(
-        { error: 'Selected clips must all belong to the same booking' },
-        { status: 400 }
-      );
-    }
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      'http://localhost:3000';
 
-    const validatedBookingId = bookingIds[0];
+    // -----------------------------
+    // FREE PATH: no Stripe
+    // -----------------------------
+    if (totalPriceCents === 0) {
+      const syntheticSessionId = `free_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
 
-    if (clientBookingId && clientBookingId !== validatedBookingId) {
-      return NextResponse.json(
-        { error: 'Selected clips do not match the current booking' },
-        { status: 400 }
-      );
-    }
+      const ordersToInsert = resolvedClips.map((clip) => ({
+        clip_id: clip.id,
+        email: null,
+        stripe_checkout_session_id: syntheticSessionId,
+        stripe_payment_intent_id: null,
+        amount_total: 0,
+        currency: 'usd',
+        status: 'paid',
+      }));
 
-    const orderedClips = clipIds.map((id) => {
-      const clip = clips.find((item) => item.id === id);
+      const { error: ordersError } = await supabaseAdmin
+        .from('orders')
+        .insert(ordersToInsert);
 
-      if (!clip) {
-        throw new Error(`Missing clip during checkout preparation: ${id}`);
+      if (ordersError) {
+        return NextResponse.json(
+          { error: ordersError.message },
+          { status: 500 }
+        );
       }
 
-      return clip;
-    });
-
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-
-    if (!baseUrl) {
-      return NextResponse.json(
-        { error: 'Missing NEXT_PUBLIC_BASE_URL in env' },
-        { status: 500 }
-      );
+      return NextResponse.json({
+        url: `${appUrl}/success?session_id=${encodeURIComponent(
+          syntheticSessionId
+        )}`,
+      });
     }
 
+    // -----------------------------
+    // PAID PATH: Stripe checkout
+    // -----------------------------
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
-      orderedClips.map((clip) => ({
+      resolvedClips.map((clip) => ({
+        quantity: 1,
         price_data: {
           currency: 'usd',
           product_data: {
-            name: clip.title || 'RallyVision Clip',
-            metadata: {
-              clipId: clip.id,
-              slug: clip.slug,
-            },
+            name: clip.title || 'ReplayTrove Clip',
           },
-          unit_amount: clip.price_cents,
+          unit_amount: clip.resolved_price_cents,
         },
-        quantity: 1,
       }));
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card'],
-      billing_address_collection: 'auto',
-      customer_creation: 'always',
       line_items: lineItems,
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/session/${validatedBookingId}`,
-      client_reference_id: validatedBookingId,
+      success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: bookingId
+        ? `${appUrl}/session/${encodeURIComponent(bookingId)}`
+        : `${appUrl}/`,
       metadata: {
-        bookingId: validatedBookingId,
-        clipIds: clipIds.join(','),
+        clipIds: resolvedClips.map((clip) => clip.id).join(','),
+        bookingId,
       },
     });
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error('Cart checkout error:', error);
+    console.error('create-cart-checkout-session error:', error);
 
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : 'Unknown server error',
-      },
+      { error: 'Failed to create checkout session.' },
       { status: 500 }
     );
   }

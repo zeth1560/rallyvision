@@ -1,74 +1,131 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { resolveClipPrice } from '@/lib/pricing';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2026-03-25.dahlia',
+});
 
-export async function POST(request: Request) {
+type ClipRow = {
+  id: string;
+  slug: string | null;
+  title: string | null;
+  price_cents: number | null;
+  club_id: string | null;
+  court_id: string | null;
+  booking_id: string | null;
+  published: boolean | null;
+};
+
+export async function POST(request: NextRequest) {
   try {
-    console.log('Create checkout session hit');
-
     const body = await request.json();
-    const { clipId } = body;
+
+    const clipId = typeof body?.clipId === 'string' ? body.clipId.trim() : '';
 
     if (!clipId) {
-      return NextResponse.json({ error: 'Missing clipId' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Clip ID is required.' },
+        { status: 400 }
+      );
     }
 
-    const { data: clip, error } = await supabaseAdmin
+    const { data: clipData, error: clipError } = await supabaseAdmin
       .from('clips')
-      .select('*')
+      .select(
+        'id, slug, title, price_cents, club_id, court_id, booking_id, published'
+      )
       .eq('id', clipId)
       .eq('published', true)
       .single();
 
-    if (error || !clip) {
-      return NextResponse.json({ error: 'Clip not found' }, { status: 404 });
-    }
-
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-
-    if (!baseUrl) {
+    if (clipError || !clipData) {
       return NextResponse.json(
-        { error: 'Missing NEXT_PUBLIC_BASE_URL in env' },
-        { status: 500 }
+        { error: 'Clip not found.' },
+        { status: 404 }
       );
     }
 
+    const clip = clipData as ClipRow;
+
+    const pricing = await resolveClipPrice({
+      clipId: clip.id,
+      clubId: clip.club_id ?? null,
+      courtId: clip.court_id ?? null,
+      fallbackPriceCents: clip.price_cents ?? 0,
+    });
+
+    const resolvedPriceCents = pricing.priceCents;
+
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      'http://localhost:3000';
+
+    // -----------------------------
+    // FREE PATH: no Stripe
+    // -----------------------------
+    if (resolvedPriceCents === 0) {
+      const syntheticSessionId = `free_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+
+      const { error: orderError } = await supabaseAdmin.from('orders').insert({
+        clip_id: clip.id,
+        email: null,
+        stripe_checkout_session_id: syntheticSessionId,
+        stripe_payment_intent_id: null,
+        amount_total: 0,
+        currency: 'usd',
+        status: 'paid',
+      });
+
+      if (orderError) {
+        return NextResponse.json(
+          { error: orderError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        url: `${appUrl}/success?session_id=${encodeURIComponent(
+          syntheticSessionId
+        )}`,
+      });
+    }
+
+    // -----------------------------
+    // PAID PATH: Stripe checkout
+    // -----------------------------
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: ['card'],
-      billing_address_collection: 'auto',
-      customer_creation: 'always',
       line_items: [
         {
+          quantity: 1,
           price_data: {
             currency: 'usd',
             product_data: {
-              name: clip.title || 'RallyVision Clip',
+              name: clip.title || 'ReplayTrove Clip',
             },
-            unit_amount: clip.price_cents,
+            unit_amount: resolvedPriceCents,
           },
-          quantity: 1,
         },
       ],
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/clip/${clip.slug}`,
+      success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: clip.slug ? `${appUrl}/clip/${clip.slug}` : `${appUrl}/`,
       metadata: {
-        clipId: clip.id,
-        slug: clip.slug,
+        clipIds: clip.id,
+        bookingId: clip.booking_id ?? '',
       },
     });
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error('Stripe checkout error:', error);
+    console.error('create-checkout-session error:', error);
 
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : 'Unknown server error',
-      },
+      { error: 'Failed to create checkout session.' },
       { status: 500 }
     );
   }

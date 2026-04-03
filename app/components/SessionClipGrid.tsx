@@ -21,7 +21,7 @@ export default function SessionClipGrid({
   bookingId,
   bookingDisplay,
 }: Props) {
-  const storageKey = `rallyvision-cart-${bookingId}`;
+  const storageKey = `replaytrove-cart-${bookingId}`;
 
   const [cart, setCart] = useState<string[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);

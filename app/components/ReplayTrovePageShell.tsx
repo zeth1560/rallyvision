@@ -1,19 +1,19 @@
 import Image from 'next/image';
 import { ReactNode } from 'react';
 
-type RallyVisionPageShellProps = {
+type ReplayTrovePageShellProps = {
   title: string;
   subtitle?: string;
   children: ReactNode;
   maxWidth?: string;
 };
 
-export default function RallyVisionPageShell({
+export default function ReplayTrovePageShell({
   title,
   subtitle,
   children,
   maxWidth = '1500px',
-}: RallyVisionPageShellProps) {
+}: ReplayTrovePageShellProps) {
   return (
     <main
       style={{
@@ -41,7 +41,7 @@ export default function RallyVisionPageShell({
         >
           <Image
             src="/logo.png"
-            alt="RallyVision"
+            alt="ReplayTrove"
             width={460}
             height={140}
             style={{

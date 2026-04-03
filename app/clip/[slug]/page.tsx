@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import BuyButton from '@/app/components/BuyButton';
 import SessionPreview from '@/app/components/SessionPreview';
-import RallyVisionPageShell from '@/app/components/RallyVisionPageShell';
+import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
+import { resolveClipPrice } from '@/lib/pricing';
 
 export default async function ClipPage({
   params,
@@ -19,7 +20,7 @@ export default async function ClipPage({
 
   if (error || !clip) {
     return (
-      <RallyVisionPageShell
+      <ReplayTrovePageShell
         title="Clip Unavailable"
         subtitle="We couldn’t find that clip."
         maxWidth="1200px"
@@ -38,14 +39,24 @@ export default async function ClipPage({
             We couldn’t find that clip.
           </p>
         </div>
-      </RallyVisionPageShell>
+      </ReplayTrovePageShell>
     );
   }
 
+  const pricing = await resolveClipPrice({
+    clipId: clip.id,
+    clubId: clip.club_id ?? null,
+    courtId: clip.court_id ?? null,
+    fallbackPriceCents: clip.price_cents ?? 0,
+  });
+
+  const resolvedPriceCents = pricing.priceCents;
+  const isFree = resolvedPriceCents === 0;
+
   return (
-    <RallyVisionPageShell
+    <ReplayTrovePageShell
       title="Clip Details"
-      subtitle="Preview your clip and purchase the full-resolution download."
+      subtitle="Preview your clip and access the full-resolution download."
       maxWidth="1200px"
     >
       <div
@@ -98,7 +109,7 @@ export default async function ClipPage({
               color: '#111',
             }}
           >
-            ${(clip.price_cents / 100).toFixed(2)}
+            ${((resolvedPriceCents ?? 0) / 100).toFixed(2)}
           </p>
 
           <p
@@ -108,7 +119,9 @@ export default async function ClipPage({
               lineHeight: 1.5,
             }}
           >
-            Purchase this clip to unlock a secure HD download.
+            {isFree
+              ? 'This clip is currently available as a free download.'
+              : 'Purchase this clip to unlock a secure HD download.'}
           </p>
 
           <div
@@ -123,6 +136,6 @@ export default async function ClipPage({
           </div>
         </div>
       </div>
-    </RallyVisionPageShell>
+    </ReplayTrovePageShell>
   );
 }

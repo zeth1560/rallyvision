@@ -1,290 +1,279 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import RallyVisionPageShell from '@/app/components/RallyVisionPageShell';
+import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
+import DownloadAllButton from '@/app/components/DownloadAllButton';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { notFound } from 'next/navigation';
 
-type Clip = {
+
+type SuccessPageProps = {
+  searchParams: Promise<{
+    session_id?: string;
+  }>;
+};
+
+type OrderRow = {
   id: string;
-  title: string;
-  slug: string;
-};
-
-type Order = {
   clip_id: string;
-  clip: Clip | null;
+  stripe_checkout_session_id: string | null;
+  amount_total: number | null;
+  status: string | null;
 };
 
-export default function SuccessPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [email, setEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [sessionId, setSessionId] = useState('');
-  const [bookingId, setBookingId] = useState<string | null>(null);
-  const [downloadingClip, setDownloadingClip] = useState<string | null>(null);
+type ClipRow = {
+  id: string;
+  slug: string | null;
+  title: string | null;
+};
 
-  useEffect(() => {
-    async function loadSessionWithRetry() {
-      const params = new URLSearchParams(window.location.search);
-      const currentSessionId = params.get('session_id');
+export default async function SuccessPage({
+  searchParams,
+}: SuccessPageProps) {
+  const { session_id: sessionId } = await searchParams;
 
-      if (!currentSessionId) {
-        setError('Missing session ID');
-        setLoading(false);
-        return;
-      }
+  if (!sessionId) {
+    notFound();
+  }
 
-      setSessionId(currentSessionId);
+  const { data: ordersData, error: ordersError } = await supabaseAdmin
+    .from('orders')
+    .select('id, clip_id, stripe_checkout_session_id, amount_total, status')
+    .eq('stripe_checkout_session_id', sessionId)
+    .eq('status', 'paid');
 
-      const maxAttempts = 8;
-      const delayMs = 1000;
+  if (ordersError) {
+    return (
+      <ReplayTrovePageShell
+        title="Order Error"
+        subtitle="We ran into a problem while loading your clips."
+        maxWidth="1400px"
+      >
+        <div style={messageCard}>
+          <p style={messageText}>We couldn’t load your order right now.</p>
+        </div>
+      </ReplayTrovePageShell>
+    );
+  }
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          const response = await fetch(
-            `/api/checkout-session?session_id=${encodeURIComponent(currentSessionId)}`,
-            { cache: 'no-store' }
-          );
+  const orders = (ordersData ?? []) as OrderRow[];
 
-          const data = await response.json();
+  if (orders.length === 0) {
+    return (
+      <ReplayTrovePageShell
+        title="Invalid Session"
+        subtitle="We couldn’t find a completed order for that session."
+        maxWidth="1400px"
+      >
+        <div style={messageCard}>
+          <p style={messageText}>Invalid session_id.</p>
+        </div>
+      </ReplayTrovePageShell>
+    );
+  }
 
-          if (response.ok && data.orders && data.orders.length > 0) {
-            setOrders(data.orders);
-            setEmail(data.email || null);
-            setBookingId(data.bookingId || null);
+  const clipIds = [...new Set(orders.map((order) => order.clip_id))];
 
-            if (data.bookingId) {
-              localStorage.removeItem(`rallyvision-cart-${data.bookingId}`);
-            }
+  const { data: clipsData, error: clipsError } = await supabaseAdmin
+    .from('clips')
+    .select('id, slug, title')
+    .in('id', clipIds);
 
-            setLoading(false);
-            return;
-          }
+  if (clipsError) {
+    return (
+      <ReplayTrovePageShell
+        title="Clip Error"
+        subtitle="Your order was found, but the clips could not be loaded."
+        maxWidth="1400px"
+      >
+        <div style={messageCard}>
+          <p style={messageText}>
+            We found your order, but could not load the clips.
+          </p>
+        </div>
+      </ReplayTrovePageShell>
+    );
+  }
 
-          if (attempt < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          } else {
-            setError(
-              data.error || 'Your clips are still processing. Please refresh in a moment.'
-            );
-            setLoading(false);
-            return;
-          }
-        } catch (err) {
-          console.error(err);
+  const clips = (clipsData ?? []) as ClipRow[];
 
-          if (attempt < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          } else {
-            setError('Something went wrong loading your clips.');
-            setLoading(false);
-            return;
-          }
-        }
-      }
-    }
+  const clipsById = new Map<string, ClipRow>();
+  for (const clip of clips) {
+    clipsById.set(clip.id, clip);
+  }
 
-    loadSessionWithRetry();
-  }, []);
+  const orderedClips = clipIds
+    .map((clipId) => clipsById.get(clipId))
+    .filter((clip): clip is ClipRow => Boolean(clip));
+
+  const totalPaidCents = orders.reduce(
+    (sum, order) => sum + (order.amount_total ?? 0),
+    0
+  );
+
+  const downloadAllHref =
+    orderedClips.length > 1
+      ? `/api/download-all?session_id=${encodeURIComponent(sessionId)}`
+      : null;
 
   return (
-    <RallyVisionPageShell
-      title="Payment Successful"
-      subtitle="Your clips are ready to download."
-      maxWidth="1200px"
+    <ReplayTrovePageShell
+      title="Your Clips Are Ready"
+      subtitle="Preview and download your ReplayTrove clips below."
+      maxWidth="1400px"
     >
-      {loading ? (
-        <div style={cardStyle}>
-          <p style={{ margin: 0, color: '#444', fontWeight: 500 }}>
-            Finalizing your clips...
-          </p>
-          <p style={{ marginTop: '8px', fontSize: '0.9rem', color: '#777' }}>
-            This usually takes just a few seconds.
-          </p>
-        </div>
-      ) : error ? (
-        <div style={cardStyle}>
-          <p style={{ margin: 0, color: '#444' }}>{error}</p>
-
-          <button
-            onClick={() => window.location.reload()}
-            style={secondaryButton}
-          >
-            Try Again
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={cardStyle}>
-            {email && (
-              <p style={{ margin: 0, color: '#17191c' }}>
-                <strong>Purchased by:</strong> {email}
-              </p>
-            )}
-
-            <p style={{ marginTop: '8px', color: '#555', fontSize: '0.95rem' }}>
-              {orders.length} clip{orders.length !== 1 ? 's' : ''} ready for
-              download
+      <div style={{ display: 'grid', gap: '20px' }}>
+        <div style={summaryCard}>
+          <div>
+            <h2 style={summaryHeading}>Order Complete</h2>
+            <p style={summaryText}>
+              {totalPaidCents === 0
+                ? 'Your clips were unlocked at no charge.'
+                : `Payment complete. Total paid: $${(
+                    totalPaidCents / 100
+                  ).toFixed(2)}.`}
             </p>
-
-            <button
-              onClick={() => {
-                window.location.href = `/api/download-all?session_id=${encodeURIComponent(sessionId)}`;
-              }}
-              style={primaryButton}
-            >
-              Download All Clips
-            </button>
-
-            {bookingId && (
-              <button
-                onClick={() => {
-                  window.location.href = `/session/${bookingId}`;
-                }}
-                style={secondaryButton}
-              >
-                Back to Session
-              </button>
-            )}
           </div>
 
-          <div style={gridStyle}>
-            {orders.map((order) => (
-              <div key={order.clip_id} style={clipCardStyle}>
-                {order.clip?.slug ? (
-                  <SessionPreview slug={order.clip.slug} />
-                ) : (
-                  <div style={previewFallbackStyle}>Preview unavailable</div>
-                )}
+                    {downloadAllHref ? (
+  <DownloadAllButton sessionId={sessionId} />
+) : null}
+        </div>
 
-                <h3 style={titleStyle}>{order.clip?.title || 'Clip'}</h3>
+        {orderedClips.length === 0 ? (
+          <div style={messageCard}>
+            <p style={messageText}>No clips were found for this order.</p>
+          </div>
+        ) : (
+          <div style={grid}>
+            {orderedClips.map((clip) => (
+              <div key={clip.id} style={clipCard}>
+                <div style={playerWrap}>
+                  {clip.slug ? (
+                    <SessionPreview slug={clip.slug} />
+                  ) : (
+                    <div style={missingPreview}>No preview available</div>
+                  )}
+                </div>
 
-                <button
-                  disabled={downloadingClip === order.clip_id}
-                  onClick={async () => {
-                    try {
-                      setDownloadingClip(order.clip_id);
+                <div style={clipInfo}>
+                  <div style={filenameText}>
+                    {clip.title || clip.slug || clip.id}
+                  </div>
 
-                      const response = await fetch(
-                        `/api/download?clip_id=${order.clip_id}&session_id=${encodeURIComponent(sessionId)}`
-                      );
-
-                      const data = await response.json();
-
-                      if (!response.ok || !data.downloadUrl) {
-                        alert(data.error || 'Could not start download');
-                        setDownloadingClip(null);
-                        return;
-                      }
-
-                      window.location.href = data.downloadUrl;
-                      setDownloadingClip(null);
-                    } catch (error) {
-                      console.error(error);
-                      alert('Something went wrong starting the download');
-                      setDownloadingClip(null);
-                    }
-                  }}
-                  style={{
-                    ...downloadButton,
-                    opacity: downloadingClip === order.clip_id ? 0.6 : 1,
-                    cursor:
-                      downloadingClip === order.clip_id ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {downloadingClip === order.clip_id
-                    ? 'Preparing...'
-                    : 'Download Clip'}
-                </button>
+                  <a
+                    href={`/api/download/${clip.id}?session_id=${encodeURIComponent(
+                      sessionId
+                    )}`}
+                    style={downloadButton}
+                  >
+                    Download Clip
+                  </a>
+                </div>
               </div>
             ))}
           </div>
-        </>
-      )}
-    </RallyVisionPageShell>
+        )}
+      </div>
+    </ReplayTrovePageShell>
   );
 }
 
-/* ================== STYLES ================== */
-
-const cardStyle = {
+const summaryCard: React.CSSProperties = {
   border: '1px solid #dedede',
   borderRadius: '16px',
-  padding: '22px 24px',
+  padding: '24px',
   background: '#ffffff',
   boxShadow: '0 8px 24px rgba(0,0,0,0.07)',
-  marginBottom: '24px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '16px',
+  flexWrap: 'wrap',
 };
 
-const clipCardStyle = {
-  border: '1px solid #dedede',
-  borderRadius: '16px',
-  padding: '20px',
-  background: '#ffffff',
-  boxShadow: '0 8px 24px rgba(0,0,0,0.07)',
-};
-
-const gridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '18px',
-};
-
-const titleStyle = {
+const summaryHeading: React.CSSProperties = {
   marginTop: 0,
-  marginBottom: '14px',
-  fontSize: '1.1rem',
+  marginBottom: '8px',
+  fontSize: '1.35rem',
   color: '#17191c',
 };
 
-const previewFallbackStyle = {
-  width: '100%',
+const summaryText: React.CSSProperties = {
+  margin: 0,
+  color: '#555',
+  lineHeight: 1.6,
+};
+
+const downloadAllButton: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '10px 14px',
+  borderRadius: '10px',
+  background: '#111111',
+  color: '#ffffff',
+  textDecoration: 'none',
+  fontWeight: 600,
+};
+
+const grid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+  gap: '24px',
+};
+
+const clipCard: React.CSSProperties = {
+  border: '1px solid #dedede',
+  borderRadius: '16px',
+  background: '#ffffff',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.07)',
+  overflow: 'hidden',
+};
+
+const playerWrap: React.CSSProperties = {
+  padding: '16px 16px 0 16px',
+};
+
+const clipInfo: React.CSSProperties = {
+  padding: '14px 16px 18px 16px',
+  display: 'grid',
+  gap: '12px',
+};
+
+const filenameText: React.CSSProperties = {
+  color: '#17191c',
+  fontWeight: 600,
+  lineHeight: 1.4,
+  wordBreak: 'break-word',
+};
+
+const downloadButton: React.CSSProperties = {
+  display: 'inline-block',
+  width: 'fit-content',
+  padding: '10px 14px',
+  borderRadius: '10px',
+  background: '#111111',
+  color: '#ffffff',
+  textDecoration: 'none',
+  fontWeight: 600,
+};
+
+const missingPreview: React.CSSProperties = {
   aspectRatio: '16 / 9',
-  background: '#eee',
-  borderRadius: '6px',
+  background: '#111',
+  color: '#bbb',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  marginBottom: '1rem',
-  textAlign: 'center' as const,
-  padding: '1rem',
-  boxSizing: 'border-box' as const,
-  color: '#555',
+  borderRadius: '12px',
 };
 
-const primaryButton = {
-  marginTop: '18px',
-  padding: '0.9rem 1.2rem',
-  background: 'linear-gradient(135deg, #e24d1d 0%, #c92e1b 100%)',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: '10px',
-  cursor: 'pointer',
-  fontWeight: 800,
-  fontSize: '0.97rem',
-  boxShadow: '0 8px 18px rgba(201,46,27,0.22)',
+const messageCard: React.CSSProperties = {
+  border: '1px solid #dedede',
+  borderRadius: '16px',
+  padding: '24px',
+  background: '#ffffff',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.07)',
 };
 
-const secondaryButton = {
-  marginTop: '12px',
-  padding: '0.7rem 1rem',
-  background: '#f1f1f1',
-  color: '#333',
-  border: 'none',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontWeight: 600,
-  fontSize: '0.9rem',
-};
-
-const downloadButton = {
-  width: '100%',
-  padding: '0.85rem',
-  background: 'linear-gradient(135deg, #111315 0%, #25282d 100%)',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: '10px',
-  fontWeight: 700,
-  fontSize: '0.96rem',
+const messageText: React.CSSProperties = {
+  margin: 0,
+  color: '#444',
 };

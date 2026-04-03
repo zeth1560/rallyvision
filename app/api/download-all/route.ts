@@ -1,160 +1,122 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { NextRequest, NextResponse } from 'next/server';
 import archiver from 'archiver';
 import { PassThrough } from 'stream';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { s3 } from '@/lib/s3';
 
 export const runtime = 'nodejs';
 
-const stripeSessionRegex = /^cs_(test|live)_[A-Za-z0-9]+$/;
+const bucket = process.env.AWS_S3_BUCKET!;
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+type ClipRow = {
+  id: string;
+  title: string | null;
+  slug: string | null;
+  s3_key: string | null;
+};
 
-function safeFilename(value: string) {
-  return value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim() || 'clip';
+function safeFilename(name: string) {
+  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const sessionId = searchParams.get('session_id');
+    const sessionId = request.nextUrl.searchParams.get('session_id')?.trim();
 
     if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Missing session_id' },
-        { status: 400 }
-      );
-    }
-
-    if (!stripeSessionRegex.test(sessionId)) {
-      return NextResponse.json(
-        { error: 'Invalid session_id' },
-        { status: 400 }
-      );
-    }
-
-    const bucketName = process.env.AWS_S3_BUCKET;
-
-    if (!bucketName) {
-      return NextResponse.json(
-        { error: 'Missing AWS_S3_BUCKET in environment variables' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Missing session_id' }, { status: 400 });
     }
 
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('clip_id')
+      .select('clip_id, status')
       .eq('stripe_checkout_session_id', sessionId)
       .eq('status', 'paid');
 
-    if (ordersError || !orders || orders.length === 0) {
+    if (ordersError) {
+      return NextResponse.json({ error: ordersError.message }, { status: 500 });
+    }
+
+    if (!orders || orders.length === 0) {
       return NextResponse.json(
-        { error: 'No purchased clips found' },
+        { error: 'No paid clips found for this session.' },
         { status: 404 }
       );
     }
 
-    const clipIds = orders
-      .map((order) => order.clip_id)
-      .filter(
-        (clipId): clipId is string =>
-          typeof clipId === 'string' && clipId.trim().length > 0
-      );
+    const clipIds = [...new Set(orders.map((order) => order.clip_id))];
 
-    if (clipIds.length === 0) {
-      return NextResponse.json(
-        { error: 'No valid purchased clip IDs found' },
-        { status: 404 }
-      );
-    }
-
-    const { data: clips, error: clipsError } = await supabaseAdmin
+    const { data: clipsData, error: clipsError } = await supabaseAdmin
       .from('clips')
       .select('id, title, slug, s3_key')
       .in('id', clipIds);
 
-    if (clipsError || !clips || clips.length === 0) {
+    if (clipsError) {
+      return NextResponse.json({ error: clipsError.message }, { status: 500 });
+    }
+
+    const clips = (clipsData ?? []).filter(
+      (clip): clip is ClipRow => Boolean(clip?.s3_key)
+    );
+
+    if (clips.length === 0) {
       return NextResponse.json(
-        { error: 'Clips not found' },
+        { error: 'No downloadable clips were found.' },
         { status: 404 }
       );
     }
 
     const archive = archiver('zip', { zlib: { level: 9 } });
-    const nodeStream = new PassThrough();
+    const stream = new PassThrough();
 
-    archive.on('error', (err: unknown) => {
-      console.error('Archiver error:', err);
+    archive.on('error', (err: Error) => {
+  stream.destroy(err);
+});
 
-      if (err instanceof Error) {
-        nodeStream.destroy(err);
-      } else {
-        nodeStream.destroy(new Error('Unknown archiver error'));
+    archive.pipe(stream);
+
+    for (const clip of clips) {
+      const command = new GetObjectCommand({
+        Bucket: bucket,
+        Key: clip.s3_key!,
+      });
+
+      const s3Object = await s3.send(command);
+      const body = s3Object.Body;
+
+      if (!body || typeof (body as any).pipe !== 'function') {
+        continue;
       }
+
+      const filenameBase = safeFilename(
+        clip.title || clip.slug || clip.id || 'clip'
+      );
+
+      archive.append(body as NodeJS.ReadableStream, {
+        name: `${filenameBase}.mp4`,
+      });
+    }
+
+    const archiveDone = new Promise<void>((resolve, reject) => {
+      stream.on('end', () => resolve());
+      stream.on('error', reject);
+      archive.on('error', reject);
     });
 
-    archive.pipe(nodeStream);
+    archive.finalize();
 
-    const response = new Response(nodeStream as unknown as BodyInit, {
+    return new NextResponse(stream as unknown as BodyInit, {
       headers: {
         'Content-Type': 'application/zip',
-        'Content-Disposition': 'attachment; filename="rallyvision-clips.zip"',
+        'Content-Disposition': `attachment; filename="replaytrove-clips-${sessionId}.zip"`,
       },
     });
-
-    (async () => {
-      try {
-        for (const clip of clips) {
-          console.log('Preparing ZIP clip:', {
-            id: clip.id,
-            title: clip.title,
-            slug: clip.slug,
-            s3_key: clip.s3_key,
-          });
-
-          if (!clip.s3_key) {
-            throw new Error(`Clip ${clip.id} is missing s3_key`);
-          }
-
-          const command = new GetObjectCommand({
-            Bucket: bucketName,
-            Key: clip.s3_key,
-          });
-
-          const s3Response = await s3.send(command);
-          const bodyStream = s3Response.Body as NodeJS.ReadableStream;
-
-          archive.append(bodyStream, {
-            name: `${safeFilename(clip.title || clip.slug || 'clip')}.mp4`,
-          });
-        }
-
-        await archive.finalize();
-        console.log('ZIP archive finalized for session:', sessionId);
-      } catch (error) {
-        console.error('ZIP build error:', error);
-        archive.destroy();
-        nodeStream.destroy(
-          error instanceof Error ? error : new Error('ZIP build failed')
-        );
-      }
-    })();
-
-    return response;
   } catch (error) {
-    console.error('ZIP route error:', error);
+    console.error('download-all route error:', error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'ZIP failed',
-      },
+      { error: 'Failed to build zip download.' },
       { status: 500 }
     );
   }
