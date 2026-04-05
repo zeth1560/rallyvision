@@ -11,6 +11,7 @@ type ClipRow = {
   id: string;
   slug: string | null;
   title: string | null;
+  recorded_at: string | null;
   price_cents: number | null;
   club_id: string | null;
   court_id: string | null;
@@ -27,9 +28,9 @@ export async function POST(request: NextRequest) {
       typeof body?.bookingId === 'string' ? body.bookingId.trim() : '';
 
     const clipIds = clipIdsRaw
-  .filter((value: unknown): value is string => typeof value === 'string')
-  .map((value: string) => value.trim())
-  .filter((value: string) => value.length > 0);
+      .filter((value: unknown): value is string => typeof value === 'string')
+      .map((value: string) => value.trim())
+      .filter((value: string) => value.length > 0);
 
     if (clipIds.length === 0) {
       return NextResponse.json(
@@ -40,7 +41,9 @@ export async function POST(request: NextRequest) {
 
     const { data: clipsData, error: clipsError } = await supabaseAdmin
       .from('clips')
-      .select('id, title, slug, booking_id, recorded_at')
+      .select(
+        'id, slug, title, recorded_at, price_cents, club_id, court_id, booking_id, published'
+      )
       .in('id', clipIds)
       .eq('published', true);
 
@@ -72,9 +75,6 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SITE_URL ||
       'http://localhost:3000';
 
-    // -----------------------------
-    // FREE PATH: no Stripe
-    // -----------------------------
     if (totalPriceCents === 0) {
       const syntheticSessionId = `free_${Date.now()}_${Math.random()
         .toString(36)
@@ -108,9 +108,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // -----------------------------
-    // PAID PATH: Stripe checkout
-    // -----------------------------
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
       resolvedClips.map((clip) => ({
         quantity: 1,
