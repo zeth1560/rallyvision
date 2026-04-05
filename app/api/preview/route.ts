@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
     const { data: clip, error: clipError } = await supabaseAdmin
       .from('clips')
-      .select('id, slug, title, published, s3_key')
+      .select('id, slug, title, published, preview_s3_key')
       .eq('slug', slug)
       .eq('published', true)
       .single();
@@ -37,14 +37,14 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!clip.s3_key) {
+    if (!clip.preview_s3_key) {
       return NextResponse.json(
         { error: 'Preview unavailable' },
         { status: 404 }
       );
     }
 
-    const previewUrl = await createSignedDownloadUrl(clip.s3_key);
+    const previewUrl = await createSignedDownloadUrl(clip.preview_s3_key);
 
     return NextResponse.json({
       previewUrl,

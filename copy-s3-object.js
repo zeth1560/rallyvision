@@ -12,8 +12,8 @@ const s3 = new S3Client({
 async function run() {
   const bucket = process.env.AWS_S3_BUCKET;
 
-  const sourceKey = 'rally-vision/InstantReplay.mp4';
-  const destinationKey = 'rally-vision/InstantReplay_002.mp4';
+  const sourceKey = 'replay-trove/InstantReplay.mp4';
+  const destinationKey = 'replay-trove/InstantReplay_002.mp4';
 
   const command = new CopyObjectCommand({
     Bucket: bucket,
