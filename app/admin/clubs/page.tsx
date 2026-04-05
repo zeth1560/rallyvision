@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import AddCourtForm from './AddCourtForm';
@@ -73,14 +74,26 @@ export default async function ClubsPage() {
                             const clipCount = clipCountByCourtId.get(court.id) ?? 0;
 
                             return (
-                              <div key={court.id} style={courtRow}>
-                                <div style={courtName}>
-                                  {court.name || 'Unnamed Court'}
+                              <Link
+                                key={court.id}
+                                href={`/admin/clips?club_id=${club.id}&court_id=${court.id}`}
+                                style={courtLink}
+                              >
+                                <div style={courtRow}>
+                                  <div>
+                                    <div style={courtName}>
+                                      {court.name || 'Unnamed Court'}
+                                    </div>
+                                    <div style={courtSubtext}>
+                                      View clips for this court
+                                    </div>
+                                  </div>
+
+                                  <div style={clipBadge}>
+                                    {clipCount} clip{clipCount === 1 ? '' : 's'}
+                                  </div>
                                 </div>
-                                <div style={clipBadge}>
-                                  {clipCount} clip{clipCount === 1 ? '' : 's'}
-                                </div>
-                              </div>
+                              </Link>
                             );
                           })}
                         </div>
@@ -167,6 +180,11 @@ const emptyText: React.CSSProperties = {
   color: '#888',
 };
 
+const courtLink: React.CSSProperties = {
+  textDecoration: 'none',
+  color: 'inherit',
+};
+
 const courtRow: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
@@ -181,6 +199,12 @@ const courtRow: React.CSSProperties = {
 const courtName: React.CSSProperties = {
   fontWeight: 500,
   color: '#222',
+};
+
+const courtSubtext: React.CSSProperties = {
+  fontSize: '0.82rem',
+  color: '#777',
+  marginTop: '2px',
 };
 
 const clipBadge: React.CSSProperties = {

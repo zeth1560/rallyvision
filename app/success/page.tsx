@@ -4,7 +4,6 @@ import DownloadAllButton from '@/app/components/DownloadAllButton';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { notFound } from 'next/navigation';
 
-
 type SuccessPageProps = {
   searchParams: Promise<{
     session_id?: string;
@@ -23,7 +22,23 @@ type ClipRow = {
   id: string;
   slug: string | null;
   title: string | null;
+  recorded_at: string | null;
 };
+
+function formatClipTime(recordedAt: string) {
+  const date = new Date(recordedAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return recordedAt;
+  }
+
+  return date.toLocaleTimeString('en-US', {
+    timeZone: 'America/Chicago',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
 
 export default async function SuccessPage({
   searchParams,
@@ -74,7 +89,7 @@ export default async function SuccessPage({
 
   const { data: clipsData, error: clipsError } = await supabaseAdmin
     .from('clips')
-    .select('id, slug, title')
+    .select('id, slug, title, recorded_at')
     .in('id', clipIds);
 
   if (clipsError) {
@@ -133,9 +148,7 @@ export default async function SuccessPage({
             </p>
           </div>
 
-                    {downloadAllHref ? (
-  <DownloadAllButton sessionId={sessionId} />
-) : null}
+          {downloadAllHref ? <DownloadAllButton sessionId={sessionId} /> : null}
         </div>
 
         {orderedClips.length === 0 ? (
@@ -156,7 +169,9 @@ export default async function SuccessPage({
 
                 <div style={clipInfo}>
                   <div style={filenameText}>
-                    {clip.title || clip.slug || clip.id}
+                    {clip.recorded_at
+                      ? formatClipTime(clip.recorded_at)
+                      : 'Replay Clip'}
                   </div>
 
                   <a
@@ -201,16 +216,6 @@ const summaryText: React.CSSProperties = {
   margin: 0,
   color: '#555',
   lineHeight: 1.6,
-};
-
-const downloadAllButton: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '10px 14px',
-  borderRadius: '10px',
-  background: '#111111',
-  color: '#ffffff',
-  textDecoration: 'none',
-  fontWeight: 600,
 };
 
 const grid: React.CSSProperties = {

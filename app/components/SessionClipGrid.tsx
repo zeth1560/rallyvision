@@ -8,6 +8,7 @@ type Clip = {
   title: string;
   slug: string;
   price_cents: number;
+  recorded_at?: string | null;
 };
 
 type Props = {
@@ -15,6 +16,16 @@ type Props = {
   bookingId: string;
   bookingDisplay: string;
 };
+
+function formatClipTime(recordedAt: string) {
+  const date = new Date(recordedAt);
+
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
 
 export default function SessionClipGrid({
   clips,
@@ -28,7 +39,10 @@ export default function SessionClipGrid({
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(storageKey);
+      const legacyKey = `rallyvision-cart-${bookingId}`;
+      const saved =
+        localStorage.getItem(storageKey) || localStorage.getItem(legacyKey);
+
       if (saved) {
         setCart(JSON.parse(saved));
       }
@@ -37,7 +51,7 @@ export default function SessionClipGrid({
     } finally {
       setCartLoaded(true);
     }
-  }, [storageKey]);
+  }, [storageKey, bookingId]);
 
   useEffect(() => {
     if (!cartLoaded) return;
@@ -163,16 +177,32 @@ export default function SessionClipGrid({
                   marginTop: '6px',
                 }}
               >
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: '1.05rem',
-                    lineHeight: 1.3,
-                    color: '#17191c',
-                  }}
-                >
-                  {clip.title || 'Clip'}
-                </h3>
+                <div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: '1.05rem',
+                      lineHeight: 1.3,
+                      color: '#17191c',
+                    }}
+                  >
+                    {clip.recorded_at
+                      ? formatClipTime(clip.recorded_at)
+                      : clip.title || 'Clip'}
+                  </h3>
+
+                  {clip.recorded_at ? null : (
+                    <p
+                      style={{
+                        margin: '6px 0 0',
+                        fontSize: '0.85rem',
+                        color: '#666',
+                      }}
+                    >
+                      {clip.title}
+                    </p>
+                  )}
+                </div>
 
                 <div
                   style={{
@@ -240,8 +270,6 @@ export default function SessionClipGrid({
             : ''}
         </h2>
 
-        
-
         {cart.length === 0 ? (
           <p style={{ marginTop: '12px', color: '#666' }}>
             Your cart is empty.
@@ -259,8 +287,10 @@ export default function SessionClipGrid({
                 const clip = clips.find((c) => c.id === id);
                 return (
                   <li key={id} style={{ marginBottom: '10px', color: '#222' }}>
-                    {clip?.title || 'Clip'} — $
-                    {((clip?.price_cents || 0) / 100).toFixed(2)}
+                    {clip?.recorded_at
+                      ? formatClipTime(clip.recorded_at)
+                      : clip?.title || 'Clip'}{' '}
+                    — ${((clip?.price_cents || 0) / 100).toFixed(2)}
                   </li>
                 );
               })}
