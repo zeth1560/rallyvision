@@ -1,6 +1,9 @@
+export const dynamic = 'force-dynamic';
+
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
+import { resolvePricesForClips } from '@/lib/pricing';
 
 function formatTimeRange(startIso: string, endIso: string) {
   const start = new Date(startIso);
@@ -34,7 +37,9 @@ export default async function SessionPage({
 
   const { data: clips, error: clipsError } = await supabaseAdmin
     .from('clips')
-    .select('id, slug, title, price_cents, recorded_at')
+    .select(
+      'id, slug, title, price_cents, recorded_at, club_id, court_id'
+    )
     .eq('booking_id', bookingid)
     .eq('published', true)
     .order('created_at', { ascending: true });
@@ -93,10 +98,20 @@ export default async function SessionPage({
     );
   }
 
+  const resolvedClips = await resolvePricesForClips(clips || []);
+
+  const clipsForGrid = resolvedClips.map((clip) => ({
+    id: clip.id,
+    slug: clip.slug,
+    title: clip.title,
+    price_cents: clip.resolved_price_cents,
+    recorded_at: clip.recorded_at,
+  }));
+
   return (
     <ReplayTrovePageShell title={bookingDisplay} subtitle={subtitle}>
       <SessionClipGrid
-        clips={clips || []}
+        clips={clipsForGrid}
         bookingId={bookingid}
         bookingDisplay={bookingDisplay}
       />

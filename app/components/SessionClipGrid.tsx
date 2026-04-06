@@ -17,13 +17,16 @@ type Props = {
   bookingDisplay: string;
 };
 
-function formatClipTime(recordedAt: string) {
+const CLUB_TIME_ZONE = 'America/Chicago';
+
+function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
   const date = new Date(recordedAt);
 
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
+    timeZone,
   });
 }
 
@@ -154,7 +157,7 @@ export default function SessionClipGrid({
           align-items: flex-start;
           justify-content: space-between;
           gap: 12px;
-          margin-top: 10px;
+          margin-top: 6px;
         }
 
         .clip-meta-main {
@@ -242,7 +245,6 @@ export default function SessionClipGrid({
           width: 100%;
           border-radius: 10px;
           cursor: pointer;
-          font-weight: 700;
         }
 
         .checkout-button {
@@ -260,6 +262,7 @@ export default function SessionClipGrid({
           background: #fff;
           color: #111;
           border: 1px solid #ccc;
+          font-weight: 700;
           font-size: 0.95rem;
         }
 
@@ -286,8 +289,8 @@ export default function SessionClipGrid({
 
         @media (max-width: 640px) {
           .clips-header {
-            align-items: flex-start;
             flex-direction: column;
+            align-items: flex-start;
           }
 
           .clip-card {

@@ -8,7 +8,8 @@ type SessionPreviewProps = {
 
 export default function SessionPreview({ slug }: SessionPreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const hasSeekedRef = useRef(false);
+  const hasAttemptedSeekRef = useRef(false);
+  const readyFallbackTimeoutRef = useRef<number | null>(null);
 
   const [previewUrl, setPreviewUrl] = useState('');
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,12 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
         setError('');
         setPreviewUrl('');
         setFrameReady(false);
-        hasSeekedRef.current = false;
+        hasAttemptedSeekRef.current = false;
+
+        if (readyFallbackTimeoutRef.current) {
+          window.clearTimeout(readyFallbackTimeoutRef.current);
+          readyFallbackTimeoutRef.current = null;
+        }
 
         const response = await fetch(
           `/api/preview?slug=${encodeURIComponent(slug)}`,
@@ -61,41 +67,53 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
 
     return () => {
       isActive = false;
+
+      if (readyFallbackTimeoutRef.current) {
+        window.clearTimeout(readyFallbackTimeoutRef.current);
+      }
     };
   }, [slug]);
 
-  function handleLoadedData() {
-    const video = videoRef.current;
+  function markReady() {
+    setFrameReady(true);
 
-    if (!video) {
-      return;
-    }
-
-    if (hasSeekedRef.current) {
-      setFrameReady(true);
-      return;
-    }
-
-    hasSeekedRef.current = true;
-
-    const safeSeekTime =
-      Number.isFinite(video.duration) && video.duration > 0.05 ? 0.05 : 0;
-
-    if (safeSeekTime === 0) {
-      setFrameReady(true);
-      return;
-    }
-
-    try {
-      video.currentTime = safeSeekTime;
-    } catch (err) {
-      console.error('Could not seek preview video:', err);
-      setFrameReady(true);
+    if (readyFallbackTimeoutRef.current) {
+      window.clearTimeout(readyFallbackTimeoutRef.current);
+      readyFallbackTimeoutRef.current = null;
     }
   }
 
-  function handleSeeked() {
-    setFrameReady(true);
+  function attemptSeekPreviewFrame() {
+    const video = videoRef.current;
+
+    if (!video || hasAttemptedSeekRef.current) {
+      return;
+    }
+
+    hasAttemptedSeekRef.current = true;
+
+    if (readyFallbackTimeoutRef.current) {
+      window.clearTimeout(readyFallbackTimeoutRef.current);
+    }
+
+    readyFallbackTimeoutRef.current = window.setTimeout(() => {
+      setFrameReady(true);
+    }, 1200);
+
+    try {
+      const duration = video.duration;
+      const safeSeekTime =
+        Number.isFinite(duration) && duration > 0.05 ? 0.05 : 0;
+
+      if (safeSeekTime > 0) {
+        video.currentTime = safeSeekTime;
+      } else {
+        markReady();
+      }
+    } catch (err) {
+      console.error('Could not seek preview video:', err);
+      markReady();
+    }
   }
 
   if (loading) {
@@ -170,6 +188,7 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
             fontSize: '0.9rem',
             fontWeight: 500,
             zIndex: 1,
+            pointerEvents: 'none',
           }}
         >
           Loading preview...
@@ -179,18 +198,19 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
       <video
         ref={videoRef}
         controls
-        preload="auto"
+        preload="metadata"
         playsInline
         muted
-        onLoadedData={handleLoadedData}
-        onSeeked={handleSeeked}
+        onLoadedMetadata={attemptSeekPreviewFrame}
+        onLoadedData={markReady}
+        onCanPlay={markReady}
+        onSeeked={markReady}
         style={{
           width: '100%',
           height: '100%',
           objectFit: 'contain',
           display: 'block',
           background: '#000',
-          visibility: frameReady ? 'visible' : 'hidden',
         }}
       >
         <source src={previewUrl} type="video/mp4" />

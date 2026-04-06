@@ -1,23 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
-const stripeSessionRegex = /^cs_(test|live)_[A-Za-z0-9]+$/;
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const sessionId = searchParams.get('session_id');
+    const sessionId = searchParams.get('session_id')?.trim();
 
     if (!sessionId) {
       return NextResponse.json(
         { error: 'Missing session_id' },
-        { status: 400 }
-      );
-    }
-
-    if (!stripeSessionRegex.test(sessionId)) {
-      return NextResponse.json(
-        { error: 'Invalid session_id' },
         { status: 400 }
       );
     }
@@ -39,7 +30,7 @@ export async function GET(request: Request) {
 
     const { data: clips, error: clipsError } = await supabaseAdmin
       .from('clips')
-      .select('id, title, slug, booking_id')
+      .select('id, title, slug, booking_id, recorded_at')
       .in('id', clipIds);
 
     if (clipsError || !clips || clips.length === 0) {
