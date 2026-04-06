@@ -5,13 +5,15 @@ import { createSignedDownloadUrl } from '@/lib/s3';
 const uuidRegex =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const stripeSessionRegex = /^cs_(test|live)_[A-Za-z0-9]+$/;
+function safeFilename(name: string) {
+  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+}
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const clipId = searchParams.get('clip_id');
-    const sessionId = searchParams.get('session_id');
+    const clipId = searchParams.get('clip_id')?.trim();
+    const sessionId = searchParams.get('session_id')?.trim();
 
     if (!clipId || !sessionId) {
       return NextResponse.json(
@@ -23,13 +25,6 @@ export async function GET(request: Request) {
     if (!uuidRegex.test(clipId)) {
       return NextResponse.json(
         { error: 'Invalid clip_id' },
-        { status: 400 }
-      );
-    }
-
-    if (!stripeSessionRegex.test(sessionId)) {
-      return NextResponse.json(
-        { error: 'Invalid session_id' },
         { status: 400 }
       );
     }
@@ -69,12 +64,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const signedUrl = await createSignedDownloadUrl(clip.s3_key);
+    const filenameBase = safeFilename(clip.title || 'clip');
+    const signedUrl = await createSignedDownloadUrl(
+      clip.s3_key,
+      `${filenameBase}.mp4`
+    );
 
-    return NextResponse.json({
-      downloadUrl: signedUrl,
-      clipTitle: clip.title,
-    });
+    return NextResponse.redirect(signedUrl, 302);
   } catch (error) {
     console.error('Download route error:', error);
 

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
+import DownloadAllButton from '@/app/components/DownloadAllButton';
 
 type Clip = {
   id: string;
@@ -14,6 +15,7 @@ type Clip = {
 type Order = {
   clip_id: string;
   clip: Clip | null;
+  amount_total?: number | null;
 };
 
 const CLUB_TIME_ZONE = 'America/Chicago';
@@ -103,10 +105,33 @@ export default function SuccessPage() {
     loadSessionWithRetry();
   }, []);
 
+  const totalPaid = useMemo(() => {
+    return orders.reduce((sum, order) => sum + (order.amount_total ?? 0), 0);
+  }, [orders]);
+
+  const isFreeOrder = orders.length > 0 && totalPaid === 0;
+
+  const pageTitle = isFreeOrder ? 'Clips Ready' : 'Payment Successful';
+  const pageSubtitle = isFreeOrder
+    ? 'No purchase was required. Your clips are ready to download.'
+    : 'Your clips are ready to download.';
+
+  function handleClipDownload(clipId: string) {
+    setDownloadingClip(clipId);
+
+    window.location.href = `/api/download?clip_id=${encodeURIComponent(
+      clipId
+    )}&session_id=${encodeURIComponent(sessionId)}`;
+
+    setTimeout(() => {
+      setDownloadingClip((current) => (current === clipId ? null : current));
+    }, 4000);
+  }
+
   return (
     <ReplayTrovePageShell
-      title="Payment Successful"
-      subtitle="Your clips are ready to download."
+      title={pageTitle}
+      subtitle={pageSubtitle}
       maxWidth="1200px"
     >
       {loading ? (
@@ -132,36 +157,46 @@ export default function SuccessPage() {
       ) : (
         <>
           <div style={cardStyle}>
-            {email && (
-              <p style={{ margin: 0, color: '#17191c' }}>
-                <strong>Purchased by:</strong> {email}
-              </p>
-            )}
+            <div style={summaryTopRow}>
+              <div style={summaryTextBlock}>
+                {email && (
+                  <p style={{ margin: 0, color: '#17191c' }}>
+                    <strong>{isFreeOrder ? 'Unlocked for:' : 'Purchased by:'}</strong>{' '}
+                    {email}
+                  </p>
+                )}
 
-            <p style={{ marginTop: '8px', color: '#555', fontSize: '0.95rem' }}>
-              {orders.length} clip{orders.length !== 1 ? 's' : ''} ready for
-              download
-            </p>
+                <p
+                  style={{
+                    marginTop: email ? '8px' : 0,
+                    marginBottom: 0,
+                    color: '#555',
+                    fontSize: '0.95rem',
+                  }}
+                >
+                  {orders.length} clip{orders.length !== 1 ? 's' : ''} ready for
+                  download
+                  {!isFreeOrder && totalPaid > 0
+                    ? ` • Total paid: $${(totalPaid / 100).toFixed(2)}`
+                    : ''}
+                </p>
+              </div>
 
-            <button
-              onClick={() => {
-                window.location.href = `/api/download-all?session_id=${encodeURIComponent(sessionId)}`;
-              }}
-              style={primaryButton}
-            >
-              Download All Clips
-            </button>
+              <div style={buttonStackStyle}>
+                <DownloadAllButton sessionId={sessionId} />
 
-            {bookingId && (
-              <button
-                onClick={() => {
-                  window.location.href = `/session/${bookingId}`;
-                }}
-                style={secondaryButton}
-              >
-                Back to Session
-              </button>
-            )}
+                {bookingId && (
+                  <button
+                    onClick={() => {
+                      window.location.href = `/session/${bookingId}`;
+                    }}
+                    style={secondaryButton}
+                  >
+                    Back to Session
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div style={gridStyle}>
@@ -181,30 +216,7 @@ export default function SuccessPage() {
 
                 <button
                   disabled={downloadingClip === order.clip_id}
-                  onClick={async () => {
-                    try {
-                      setDownloadingClip(order.clip_id);
-
-                      const response = await fetch(
-                        `/api/download?clip_id=${order.clip_id}&session_id=${encodeURIComponent(sessionId)}`
-                      );
-
-                      const data = await response.json();
-
-                      if (!response.ok || !data.downloadUrl) {
-                        alert(data.error || 'Could not start download');
-                        setDownloadingClip(null);
-                        return;
-                      }
-
-                      window.location.href = data.downloadUrl;
-                      setDownloadingClip(null);
-                    } catch (error) {
-                      console.error(error);
-                      alert('Something went wrong starting the download');
-                      setDownloadingClip(null);
-                    }
-                  }}
+                  onClick={() => handleClipDownload(order.clip_id)}
                   style={{
                     ...downloadButton,
                     opacity: downloadingClip === order.clip_id ? 0.6 : 1,
@@ -236,6 +248,19 @@ const cardStyle = {
   marginBottom: '24px',
 };
 
+const summaryTopRow = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '18px',
+  flexWrap: 'wrap' as const,
+};
+
+const summaryTextBlock = {
+  minWidth: 0,
+  flex: '1 1 320px',
+};
+
 const clipCardStyle = {
   border: '1px solid #dedede',
   borderRadius: '16px',
@@ -246,7 +271,7 @@ const clipCardStyle = {
 
 const gridStyle = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
   gap: '18px',
 };
 
@@ -272,21 +297,13 @@ const previewFallbackStyle = {
   color: '#555',
 };
 
-const primaryButton = {
-  marginTop: '18px',
-  padding: '0.9rem 1.2rem',
-  background: 'linear-gradient(135deg, #e24d1d 0%, #c92e1b 100%)',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: '10px',
-  cursor: 'pointer',
-  fontWeight: 800,
-  fontSize: '0.97rem',
-  boxShadow: '0 8px 18px rgba(201,46,27,0.22)',
+const buttonStackStyle = {
+  display: 'grid',
+  gap: '12px',
+  width: 'fit-content',
 };
 
 const secondaryButton = {
-  marginTop: '12px',
   padding: '0.7rem 1rem',
   background: '#f1f1f1',
   color: '#333',

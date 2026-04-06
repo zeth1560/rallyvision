@@ -11,10 +11,21 @@ export const s3 = new S3Client({
   },
 });
 
-export async function createSignedDownloadUrl(key: string) {
+export async function createSignedDownloadUrl(
+  key: string,
+  filename?: string
+) {
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
+
+    // 👇 THIS is the magic
+    ResponseContentDisposition: filename
+      ? `attachment; filename="${filename}"`
+      : 'attachment',
+
+    // Optional but helps consistency
+    ResponseContentType: 'video/mp4',
   });
 
   return await getSignedUrl(s3, command, {
