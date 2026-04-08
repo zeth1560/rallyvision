@@ -1,31 +1,114 @@
 export const dynamic = 'force-dynamic';
 
+import type { Metadata } from 'next';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { resolvePricesForClips } from '@/lib/pricing';
 
-function formatTimeRange(startIso: string, endIso: string) {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
+type ClipLookupRow = {
+  recorded_at: string | null;
+  club_id: string | null;
+  court_id: string | null;
+};
 
-  const dateLabel = start.toLocaleDateString('en-US', {
+function formatDateLabel(dateValue: string) {
+  return new Date(dateValue).toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   });
+}
 
-  const startTime = start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+async function getClubName(clubId: string | null) {
+  if (!clubId) return 'ReplayTrove';
 
-  const endTime = end.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const { data: club } = await supabaseAdmin
+    .from('clubs')
+    .select('name')
+    .eq('id', clubId)
+    .maybeSingle();
 
-  return `${dateLabel} | ${startTime} to ${endTime}`;
+  return club?.name || 'ReplayTrove';
+}
+
+async function getCourtName(courtId: string | null) {
+  if (!courtId) return 'Court';
+
+  const { data: court } = await supabaseAdmin
+    .from('courts')
+    .select('name')
+    .eq('id', courtId)
+    .maybeSingle();
+
+  return court?.name || 'Court';
+}
+
+async function getBookingDisplayData(bookingid: string) {
+  const { data: booking, error: bookingError } = await supabaseAdmin
+    .from('bookings')
+    .select('booking_id, club_id, court_id, start_time, end_time, booking_date')
+    .eq('booking_id', bookingid)
+    .maybeSingle();
+
+  let bookingDisplay = 'ReplayTrove Session';
+  let subtitle = 'Browse your clips and check out once.';
+  let clubName = 'ReplayTrove';
+
+  let resolvedClubId: string | null = booking?.club_id ?? null;
+  let resolvedCourtId: string | null = booking?.court_id ?? null;
+  let resolvedDate: string | null =
+    booking?.booking_date ?? booking?.start_time ?? null;
+
+  if (!resolvedClubId || !resolvedCourtId || !resolvedDate) {
+    const { data: fallbackClip } = await supabaseAdmin
+      .from('clips')
+      .select('recorded_at, club_id, court_id')
+      .eq('booking_id', bookingid)
+      .eq('published', true)
+      .order('recorded_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle<ClipLookupRow>();
+
+    if (fallbackClip) {
+      resolvedClubId = resolvedClubId || fallbackClip.club_id;
+      resolvedCourtId = resolvedCourtId || fallbackClip.court_id;
+      resolvedDate = resolvedDate || fallbackClip.recorded_at;
+    }
+  }
+
+  if (!bookingError || resolvedClubId || resolvedCourtId || resolvedDate) {
+    clubName = await getClubName(resolvedClubId);
+    const courtName = await getCourtName(resolvedCourtId);
+    const dateLabel = resolvedDate ? formatDateLabel(resolvedDate) : 'Session';
+
+    bookingDisplay = `${clubName} | ${courtName} | ${dateLabel}`;
+    subtitle = 'Browse your clips, preview your favorites, and check out once.';
+  }
+
+  return {
+    booking,
+    bookingDisplay,
+    subtitle,
+    clubName,
+  };
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ bookingid: string }>;
+}): Promise<Metadata> {
+  const { bookingid } = await params;
+  const { clubName } = await getBookingDisplayData(bookingid);
+
+  return {
+    title:
+      clubName === 'ReplayTrove'
+        ? 'ReplayTrove'
+        : `ReplayTrove | ${clubName}`,
+  };
 }
 
 export default async function SessionPage({
@@ -38,57 +121,14 @@ export default async function SessionPage({
   const { data: clips, error: clipsError } = await supabaseAdmin
     .from('clips')
     .select(
-      'id, slug, title, price_cents, recorded_at, club_id, court_id'
+      'id, slug, title, price_cents, recorded_at, club_id, court_id, created_at'
     )
     .eq('booking_id', bookingid)
     .eq('published', true)
+    .order('recorded_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true });
 
-  const { data: booking, error: bookingError } = await supabaseAdmin
-    .from('bookings')
-    .select('booking_id, club_id, court_id, start_time, end_time')
-    .eq('booking_id', bookingid)
-    .single();
-
-  let bookingDisplay = `Booking ${bookingid}`;
-  let subtitle = 'Browse your clips and check out once.';
-
-  if (!bookingError && booking) {
-    let clubName = 'ReplayTrove';
-    let courtName = 'Court';
-
-    if (booking.club_id) {
-      const { data: club } = await supabaseAdmin
-        .from('clubs')
-        .select('name')
-        .eq('id', booking.club_id)
-        .single();
-
-      if (club?.name) {
-        clubName = club.name;
-      }
-    }
-
-    if (booking.court_id) {
-      const { data: court } = await supabaseAdmin
-        .from('courts')
-        .select('name')
-        .eq('id', booking.court_id)
-        .single();
-
-      if (court?.name) {
-        courtName = court.name;
-      }
-    }
-
-    const timeRange =
-      booking.start_time && booking.end_time
-        ? formatTimeRange(booking.start_time, booking.end_time)
-        : 'Session';
-
-    bookingDisplay = `${clubName} | ${courtName} | ${timeRange}`;
-    subtitle = 'Browse your clips, preview your favorites, and check out once.';
-  }
+  const { bookingDisplay, subtitle } = await getBookingDisplayData(bookingid);
 
   if (clipsError) {
     return (
