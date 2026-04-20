@@ -32,6 +32,19 @@ function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
   });
 }
 
+function formatDuration(seconds: number) {
+  const duration = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(duration / 3600);
+  const minutes = Math.floor((duration % 3600) / 60);
+  const secs = duration % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
 export default function SessionClipGrid({
   clips,
   bookingId,
@@ -42,6 +55,7 @@ export default function SessionClipGrid({
 
   const [cart, setCart] = useState<string[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
+  const [clipDurations, setClipDurations] = useState<Record<string, number>>({});
 
   useEffect(() => {
     try {
@@ -88,6 +102,13 @@ export default function SessionClipGrid({
   function addAllToCart() {
     const allClipIds = clips.map((clip) => clip.id);
     setCart(allClipIds);
+  }
+
+  function updateClipDuration(clipId: string, durationSeconds: number) {
+    setClipDurations((current) => ({
+      ...current,
+      [clipId]: durationSeconds,
+    }));
   }
 
   const total = useMemo(() => {
@@ -404,38 +425,51 @@ export default function SessionClipGrid({
             </div>
           ) : (
             <div className="clips-grid">
-              {clips.map((clip) => (
-                <div key={clip.id} className="clip-card">
-                  <SessionPreview slug={clip.slug} />
+              {clips.map((clip) => {
+                const durationSeconds = clipDurations[clip.id];
+                const durationLabel =
+                  durationSeconds !== undefined
+                    ? ` · ${formatDuration(durationSeconds)}`
+                    : '';
 
-                  <div className="clip-meta-row">
-                    <div className="clip-meta-main">
-                      <h3 className="clip-title">
-                        {clip.recorded_at
-                          ? formatClipTime(clip.recorded_at)
-                          : clip.title || 'Clip'}
-                      </h3>
+                return (
+                  <div key={clip.id} className="clip-card">
+                    <SessionPreview
+                      slug={clip.slug}
+                      onDuration={(duration) =>
+                        updateClipDuration(clip.id, duration)
+                      }
+                    />
 
-                      {clip.recorded_at ? null : (
-                        <p className="clip-subtitle">{clip.title}</p>
-                      )}
+                    <div className="clip-meta-row">
+                      <div className="clip-meta-main">
+                        <h3 className="clip-title">
+                          {clip.recorded_at
+                            ? `${formatClipTime(clip.recorded_at)}${durationLabel}`
+                            : clip.title || 'Clip'}
+                        </h3>
+
+                        {clip.recorded_at ? null : (
+                          <p className="clip-subtitle">{clip.title}</p>
+                        )}
+                      </div>
+
+                      <div className="clip-price">
+                        ${(clip.price_cents / 100).toFixed(2)}
+                      </div>
                     </div>
 
-                    <div className="clip-price">
-                      ${(clip.price_cents / 100).toFixed(2)}
-                    </div>
+                    <button
+                      onClick={() => toggleCart(clip.id)}
+                      className={`clip-button ${
+                        isInCart(clip.id) ? 'remove' : 'add'
+                      }`}
+                    >
+                      {isInCart(clip.id) ? 'Remove from Cart' : 'Add to Cart'}
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() => toggleCart(clip.id)}
-                    className={`clip-button ${
-                      isInCart(clip.id) ? 'remove' : 'add'
-                    }`}
-                  >
-                    {isInCart(clip.id) ? 'Remove from Cart' : 'Add to Cart'}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
