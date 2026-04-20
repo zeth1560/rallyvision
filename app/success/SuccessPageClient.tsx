@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
 import DownloadAllButton from '@/app/components/DownloadAllButton';
-import { formatClipTime, formatDuration } from '@/lib/format';
+import { formatDuration } from '@/lib/format';
 
 type Clip = {
   id: string;

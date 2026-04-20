@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import SessionPreview from '@/app/components/SessionPreview';
-import { formatClipTime, formatDuration } from '@/lib/format';
+import { formatDuration } from '@/lib/format';
 
 type Clip = {
   id: string;
