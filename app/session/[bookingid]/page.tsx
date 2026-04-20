@@ -122,7 +122,7 @@ export default async function SessionPage({
   const { data: clips, error: clipsError } = await supabaseAdmin
     .from('clips')
     .select(
-      'id, slug, title, price_cents, recorded_at, club_id, court_id, created_at'
+      'id, slug, title, price_cents, recorded_at, club_id, court_id, created_at, duration_seconds'
     )
     .eq('booking_id', bookingid)
     .eq('published', true)
@@ -148,6 +148,7 @@ export default async function SessionPage({
     price_cents: clip.resolved_price_cents,
     recorded_at: clip.recorded_at,
     created_at: clip.created_at,
+    duration_seconds: clip.duration_seconds,
   }));
 
   const daysRemaining = calculateMinDaysRemaining(clips || []);

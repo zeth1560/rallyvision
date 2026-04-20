@@ -4,10 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 
 type SessionPreviewProps = {
   slug: string;
-  onDuration?: (durationSeconds: number) => void;
 };
 
-export default function SessionPreview({ slug, onDuration }: SessionPreviewProps) {
+export default function SessionPreview({ slug }: SessionPreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasAttemptedSeekRef = useRef(false);
   const readyFallbackTimeoutRef = useRef<number | null>(null);
@@ -103,11 +102,6 @@ export default function SessionPreview({ slug, onDuration }: SessionPreviewProps
 
     try {
       const duration = video.duration;
-
-      if (Number.isFinite(duration) && duration > 0) {
-        setDurationSeconds(duration);
-        onDuration?.(duration);
-      }
 
       const safeSeekTime =
         Number.isFinite(duration) && duration > 0.05 ? 0.05 : 0;

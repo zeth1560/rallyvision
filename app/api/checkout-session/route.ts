@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
     const { data: clips, error: clipsError } = await supabaseAdmin
       .from('clips')
-      .select('id, title, slug, booking_id, recorded_at')
+      .select('id, title, slug, booking_id, recorded_at, duration_seconds')
       .in('id', clipIds);
 
     if (clipsError || !clips || clips.length === 0) {

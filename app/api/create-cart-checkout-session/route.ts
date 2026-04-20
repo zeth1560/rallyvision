@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const { data: clipsData, error: clipsError } = await supabaseAdmin
       .from('clips')
       .select(
-        'id, slug, title, recorded_at, price_cents, club_id, court_id, booking_id, published'
+        'id, slug, title, recorded_at, price_cents, club_id, court_id, booking_id, published, duration_seconds'
       )
       .in('id', clipIds)
       .eq('published', true);

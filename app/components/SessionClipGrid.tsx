@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import SessionPreview from '@/app/components/SessionPreview';
+import { formatClipTime, formatDuration } from '@/lib/format';
 
 type Clip = {
   id: string;
@@ -10,6 +11,7 @@ type Clip = {
   price_cents: number;
   recorded_at?: string | null;
   created_at?: string | null;
+  duration_seconds?: number | null;
 };
 
 type Props = {
@@ -32,19 +34,6 @@ function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
   });
 }
 
-function formatDuration(seconds: number) {
-  const duration = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(duration / 3600);
-  const minutes = Math.floor((duration % 3600) / 60);
-  const secs = duration % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-
-  return `${minutes}:${String(secs).padStart(2, '0')}`;
-}
-
 export default function SessionClipGrid({
   clips,
   bookingId,
@@ -55,7 +44,6 @@ export default function SessionClipGrid({
 
   const [cart, setCart] = useState<string[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
-  const [clipDurations, setClipDurations] = useState<Record<string, number>>({});
 
   useEffect(() => {
     try {
@@ -102,13 +90,6 @@ export default function SessionClipGrid({
   function addAllToCart() {
     const allClipIds = clips.map((clip) => clip.id);
     setCart(allClipIds);
-  }
-
-  function updateClipDuration(clipId: string, durationSeconds: number) {
-    setClipDurations((current) => ({
-      ...current,
-      [clipId]: durationSeconds,
-    }));
   }
 
   const total = useMemo(() => {
@@ -426,20 +407,13 @@ export default function SessionClipGrid({
           ) : (
             <div className="clips-grid">
               {clips.map((clip) => {
-                const durationSeconds = clipDurations[clip.id];
-                const durationLabel =
-                  durationSeconds !== undefined
-                    ? ` · ${formatDuration(durationSeconds)}`
-                    : '';
+                const durationLabel = clip.duration_seconds
+                  ? ` | ${formatDuration(clip.duration_seconds)}`
+                  : '';
 
                 return (
                   <div key={clip.id} className="clip-card">
-                    <SessionPreview
-                      slug={clip.slug}
-                      onDuration={(duration) =>
-                        updateClipDuration(clip.id, duration)
-                      }
-                    />
+                    <SessionPreview slug={clip.slug} />
 
                     <div className="clip-meta-row">
                       <div className="clip-meta-main">
@@ -504,7 +478,10 @@ export default function SessionClipGrid({
                       <li key={id} className="cart-list-item">
                         {clip?.recorded_at
                           ? formatClipTime(clip.recorded_at)
-                          : clip?.title || 'Clip'}{' '}
+                          : clip?.title || 'Clip'}
+                        {clip?.duration_seconds
+                          ? ` | ${formatDuration(clip.duration_seconds)}`
+                          : ''}{' '}
                         - ${((clip?.price_cents || 0) / 100).toFixed(2)}
                       </li>
                     );

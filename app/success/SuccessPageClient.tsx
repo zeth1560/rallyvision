@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
 import DownloadAllButton from '@/app/components/DownloadAllButton';
+import { formatClipTime, formatDuration } from '@/lib/format';
 
 type Clip = {
   id: string;
   title: string;
   slug: string;
   recorded_at?: string | null;
+  duration_seconds?: number | null;
 };
 
 type Order = {
@@ -212,6 +214,9 @@ export default function SuccessPageClient() {
                   {order.clip?.recorded_at
                     ? formatClipTime(order.clip.recorded_at)
                     : order.clip?.title || 'Clip'}
+                  {order.clip?.duration_seconds
+                    ? ` | ${formatDuration(order.clip.duration_seconds)}`
+                    : ''}
                 </h3>
 
                 <button
