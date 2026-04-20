@@ -9,12 +9,14 @@ type Clip = {
   slug: string;
   price_cents: number;
   recorded_at?: string | null;
+  created_at?: string | null;
 };
 
 type Props = {
   clips: Clip[];
   bookingId: string;
   bookingDisplay: string;
+  daysRemaining?: number;
 };
 
 const CLUB_TIME_ZONE = 'America/Chicago';
@@ -34,6 +36,7 @@ export default function SessionClipGrid({
   clips,
   bookingId,
   bookingDisplay,
+  daysRemaining = 30,
 }: Props) {
   const storageKey = `replaytrove-cart-${bookingId}`;
 
@@ -80,6 +83,11 @@ export default function SessionClipGrid({
 
   function isInCart(clipId: string) {
     return cart.includes(clipId);
+  }
+
+  function addAllToCart() {
+    const allClipIds = clips.map((clip) => clip.id);
+    setCart(allClipIds);
   }
 
   const total = useMemo(() => {
@@ -131,6 +139,44 @@ export default function SessionClipGrid({
           justify-content: space-between;
           gap: 12px;
           margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+
+        .clips-header-right {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .add-all-button {
+          padding: 0.65rem 1.2rem;
+          background: linear-gradient(135deg, #111315 0%, #25282d 100%);
+          color: #ffffff;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 700;
+          font-size: 0.9rem;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+          white-space: nowrap;
+        }
+
+        .add-all-button:hover {
+          opacity: 0.95;
+        }
+
+        .retention-banner {
+          background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+          border: 1px solid #ffc107;
+          border-radius: 12px;
+          padding: 16px 18px;
+          margin-bottom: 24px;
+          color: #856404;
+        }
+
+        .retention-banner strong {
+          color: #d39e00;
         }
 
         .clips-grid {
@@ -302,17 +348,35 @@ export default function SessionClipGrid({
             align-items: stretch;
             gap: 8px;
           }
-
-          .clip-price {
-            font-size: 1.05rem;
-            white-space: normal;
-          }
-
-          .cart-card {
-            padding: 16px;
+ className="clips-header-right">
+              <div
+                style={{
+                  fontSize: '0.95rem',
+                  color: '#555',
+                  fontWeight: 600,
+                }}
+              >
+                {clips.length} clip{clips.length === 1 ? '' : 's'}
+              </div>
+              {clips.length > 0 && (
+                <button onClick={addAllToCart} className="add-all-button">
+                  Add All to Cart
+                </button>
+              )
           }
         }
       `}</style>
+
+      {clips.length > 0 && (
+        <div className="retention-banner">
+          <strong>Limited-time availability:</strong> Video clips are automatically
+          deleted after 30 days. You have{' '}
+          <strong>
+            {daysRemaining} day{daysRemaining === 1 ? '' : 's'}
+          </strong>{' '}
+          remaining to download the videos below.
+        </div>
+      )}
 
       <div className="session-layout">
         <div className="clips-column">

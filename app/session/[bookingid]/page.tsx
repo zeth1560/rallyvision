@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { resolvePricesForClips } from '@/lib/pricing';
+import { calculateMinDaysRemaining } from '@/lib/calculateDaysRemaining';
 
 type ClipLookupRow = {
   recorded_at: string | null;
@@ -146,7 +147,10 @@ export default async function SessionPage({
     title: clip.title,
     price_cents: clip.resolved_price_cents,
     recorded_at: clip.recorded_at,
+    created_at: clip.created_at,
   }));
+
+  const daysRemaining = calculateMinDaysRemaining(clips || []);
 
   return (
     <ReplayTrovePageShell title={bookingDisplay} subtitle={subtitle}>
@@ -154,6 +158,7 @@ export default async function SessionPage({
         clips={clipsForGrid}
         bookingId={bookingid}
         bookingDisplay={bookingDisplay}
+        daysRemaining={daysRemaining}
       />
     </ReplayTrovePageShell>
   );
