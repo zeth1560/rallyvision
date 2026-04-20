@@ -348,22 +348,6 @@ export default function SessionClipGrid({
             align-items: stretch;
             gap: 8px;
           }
- className="clips-header-right">
-              <div
-                style={{
-                  fontSize: '0.95rem',
-                  color: '#555',
-                  fontWeight: 600,
-                }}
-              >
-                {clips.length} clip{clips.length === 1 ? '' : 's'}
-              </div>
-              {clips.length > 0 && (
-                <button onClick={addAllToCart} className="add-all-button">
-                  Add All to Cart
-                </button>
-              )
-          }
         }
       `}</style>
 
@@ -391,14 +375,21 @@ export default function SessionClipGrid({
               Available Clips
             </h2>
 
-            <div
-              style={{
-                fontSize: '0.95rem',
-                color: '#555',
-                fontWeight: 600,
-              }}
-            >
-              {clips.length} clip{clips.length === 1 ? '' : 's'}
+            <div className="clips-header-right">
+              <div
+                style={{
+                  fontSize: '0.95rem',
+                  color: '#555',
+                  fontWeight: 600,
+                }}
+              >
+                {clips.length} clip{clips.length === 1 ? '' : 's'}
+              </div>
+              {clips.length > 0 && (
+                <button onClick={addAllToCart} className="add-all-button">
+                  Add All to Cart
+                </button>
+              )}
             </div>
           </div>
 
