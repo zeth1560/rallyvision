@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createSignedDownloadUrl } from '@/lib/s3';
+import { createSignedPreviewUrl } from '@/lib/s3';
 
 const slugRegex = /^[a-zA-Z0-9_-]+$/;
 
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const previewUrl = await createSignedDownloadUrl(clip.preview_s3_key);
+    const previewUrl = await createSignedPreviewUrl(clip.preview_s3_key);
 
     return NextResponse.json({
       previewUrl,

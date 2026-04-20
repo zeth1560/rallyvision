@@ -32,3 +32,20 @@ export async function createSignedDownloadUrl(
     expiresIn: 60,
   });
 }
+
+export async function createSignedPreviewUrl(key: string) {
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+
+    // For previews, use inline disposition to allow browser playback
+    ResponseContentDisposition: 'inline',
+
+    // Keep video/mp4 content type
+    ResponseContentType: 'video/mp4',
+  });
+
+  return await getSignedUrl(s3, command, {
+    expiresIn: 3600, // 1 hour for previews to handle range requests
+  });
+}

@@ -21,6 +21,27 @@ function formatDateLabel(dateValue: string) {
   });
 }
 
+function formatTimeRange(startTime: string | null, endTime: string | null, timeZone: string = 'America/Chicago') {
+  if (!startTime || !endTime) return '';
+
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  const startFormatted = start.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  });
+
+  const endFormatted = end.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  });
+
+  return `${startFormatted} - ${endFormatted}`;
+}
+
 async function getClubName(clubId: string | null) {
   if (!clubId) return 'ReplayTrove';
 
@@ -83,8 +104,14 @@ async function getBookingDisplayData(bookingid: string) {
     clubName = await getClubName(resolvedClubId);
     const courtName = await getCourtName(resolvedCourtId);
     const dateLabel = resolvedDate ? formatDateLabel(resolvedDate) : 'Session';
+    const timeRange = booking ? formatTimeRange(booking.start_time, booking.end_time) : '';
 
-    bookingDisplay = `${clubName} | ${courtName} | ${dateLabel}`;
+    let displayParts = [clubName, courtName, dateLabel];
+    if (timeRange) {
+      displayParts.push(timeRange);
+    }
+
+    bookingDisplay = displayParts.join(' | ');
     subtitle = 'Browse your clips, preview your favorites, and check out once.';
   }
 
