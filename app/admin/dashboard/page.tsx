@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { formatDateInTimezone } from '@/lib/formatDate';
 
 type CountResult = {
   count: number | null;
@@ -321,7 +322,7 @@ export default async function AdminDashboardPage() {
                       }}
                     >
                       {clip.created_at
-                        ? new Date(clip.created_at).toLocaleString()
+                        ? formatDateInTimezone(clip.created_at)
                         : '—'}
                       {' • '}
                       {clubName}

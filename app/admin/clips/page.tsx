@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import SessionPreview from '@/app/components/SessionPreview';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
+import { formatDateInTimezone } from '@/lib/formatDate';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type ClipRow = {
@@ -352,7 +353,7 @@ export default async function AdminClipsPage({
                     >
                       <div>
                         {clip.created_at
-                          ? new Date(clip.created_at).toLocaleString()
+                          ? formatDateInTimezone(clip.created_at)
                           : '—'}
                       </div>
                       <div>{clubName}</div>

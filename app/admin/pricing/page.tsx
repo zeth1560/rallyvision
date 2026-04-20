@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { formatDateInTimezone } from '@/lib/formatDate';
 import {
   createPricingRuleAction,
   togglePricingRuleActiveAction,
@@ -222,7 +223,7 @@ export default async function AdminPricingPage() {
                           <div>
                             <strong>Created:</strong>{' '}
                             {rule.created_at
-                              ? new Date(rule.created_at).toLocaleString()
+                              ? formatDateInTimezone(rule.created_at)
                               : '—'}
                           </div>
                         </div>

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { formatDateInTimezone } from '@/lib/formatDate';
 import {
   createUserProfileAction,
   toggleUserActiveAction,
@@ -186,7 +187,7 @@ export default async function AdminUsersPage() {
                           <div>
                             <strong>Created:</strong>{' '}
                             {user.created_at
-                              ? new Date(user.created_at).toLocaleString()
+                              ? formatDateInTimezone(user.created_at)
                               : '—'}
                           </div>
                         </div>
