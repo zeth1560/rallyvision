@@ -13,12 +13,12 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-white text-slate-950 font-sans">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-20 px-6 py-12 sm:px-10 lg:px-14">
-        <header className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 border-b border-slate-200 pb-8 text-slate-950">
-          <div className="flex items-center gap-4">
+        <header className="mx-auto flex w-full items-center justify-center border-b border-slate-200 pb-10 text-slate-950">
+          <div className="flex items-center justify-center">
             <Image
               src={logoImage}
               alt="ReplayTrove logo"
-              className="h-16 w-auto object-contain sm:h-20"
+              className="h-24 w-auto object-contain sm:h-28"
               priority
             />
           </div>
