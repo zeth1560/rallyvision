@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import heroImage from '../keypad-replays.png';
+import logoImage from '../ReplayTrove.png';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -13,13 +14,13 @@ export default function Home() {
     <main className="min-h-screen bg-white text-slate-950 font-sans">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-20 px-6 py-12 sm:px-10 lg:px-14">
         <header className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 border-b border-slate-200 pb-8 text-slate-950">
-          <div className="space-y-2">
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-500">
-              Pickleball replay for players and clubs
-            </p>
-            <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">
-              ReplayTrove
-            </h1>
+          <div className="flex items-center gap-4">
+            <Image
+              src={logoImage}
+              alt="ReplayTrove logo"
+              className="h-16 w-auto object-contain sm:h-20"
+              priority
+            />
           </div>
         </header>
 
@@ -33,8 +34,8 @@ export default function Home() {
                 Relive the point. Review the game. Keep the highlights.
               </h2>
               <p className="max-w-3xl text-lg leading-8 text-slate-600 sm:text-xl">
-                ReplayTrove gives pickleball players courtside instant replays, optional
-                full-game recording, and downloadable HD footage they can enjoy, share,
+                ReplayTrove gives pickleball players courtside instant replays,
+                full-game recording, and downloadable HD footage to enjoy, share,
                 study, or use for coaching.
               </p>
             </div>
@@ -72,14 +73,13 @@ export default function Home() {
             </p>
             <div className="space-y-4">
               <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
-                Your game, ready when you want it.
+                Your game, ready whenever you want it.
               </h2>
               <p className="max-w-2xl text-base leading-8 text-slate-600">
-                With ReplayTrove, players can view instant replays right at the court
-                after great shots, close calls, and moments worth another look.
-                Players can also choose to record their full game, then download HD
-                footage afterward for personal enjoyment, social sharing, deeper game
-                study, or online and AI coaching.
+                With ReplayTrove, players can view instant replays courtside after great
+                shots, close calls, and moments worth another look. Players can also
+                record their full game and download HD footage afterward for personal
+                enjoyment, social sharing, deeper game study, or online and AI coaching.
               </p>
             </div>
           </div>
@@ -92,7 +92,7 @@ export default function Home() {
             </div>
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
               <h3 className="text-lg font-semibold text-slate-950">
-                Record full games by choice
+                Record full games
               </h3>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
@@ -115,12 +115,12 @@ export default function Home() {
             </p>
             <div className="space-y-4">
               <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
-                Add video replay without adding staff headaches.
+                Add video replay without the staff headaches.
               </h2>
               <p className="max-w-2xl text-base leading-8 text-slate-600">
                 ReplayTrove helps pickleball clubs offer courtside replay, optional
-                full-game recording, and downloadable player footage without needing a
-                production crew or complicated manual workflow.
+                full-game recording, and downloadable player footage without a
+                production crew or a complicated manual workflow.
               </p>
             </div>
           </div>
