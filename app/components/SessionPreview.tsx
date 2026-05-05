@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -15,6 +15,8 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [frameReady, setFrameReady] = useState(false);
+  const [overlayIndex, setOverlayIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -117,6 +119,30 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
     }
   }
 
+  useEffect(() => {
+    if (!isPlaying) {
+      return undefined;
+    }
+
+    const overlayMessages = [
+      'ReplayTrove Preview',
+      'HD Version Available After Purchase',
+    ];
+
+    const interval = window.setInterval(() => {
+      setOverlayIndex((current) => (current + 1) % overlayMessages.length);
+    }, 4000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isPlaying]);
+
+  useEffect(() => {
+    setOverlayIndex(0);
+    setIsPlaying(false);
+  }, [slug]);
+
   if (loading) {
     return (
       <div
@@ -202,6 +228,9 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
         preload="metadata"
         playsInline
         muted
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => setIsPlaying(false)}
         onLoadedMetadata={attemptSeekPreviewFrame}
         onLoadedData={markReady}
         onCanPlay={markReady}
@@ -217,6 +246,30 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
         <source src={previewUrl} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
+
+      {isPlaying && frameReady && previewUrl && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 12,
+            bottom: 12,
+            background: 'rgba(0, 0, 0, 0.68)',
+            color: '#fff',
+            padding: '0.45rem 0.8rem',
+            borderRadius: 8,
+            fontFamily: 'Anton, Helvetica, Arial, sans-serif',
+            fontWeight: 700,
+            fontSize: '0.95rem',
+            lineHeight: 1.2,
+            maxWidth: 'calc(100% - 24px)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            zIndex: 2,
+          }}
+        >
+          {['ReplayTrove Preview', 'HD Version Available After Purchase'][overlayIndex]}
+        </div>
+      )}
     </div>
   );
 }
