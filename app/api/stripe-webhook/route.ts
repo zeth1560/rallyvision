@@ -118,7 +118,7 @@ export async function POST(request: Request) {
     const { data: purchasedClips, error: purchasedClipsError } =
       await supabaseAdmin
         .from('clips')
-        .select('id, title, slug, created_at, s3_key')
+        .select('id, title, slug, created_at, s3_key, thumbnail_s3_key')
         .in('id', clipIds);
 
     if (purchasedClipsError) {
