@@ -132,7 +132,7 @@ export default async function ClipPage({
               border: '1px solid #ececec',
             }}
           >
-            <BuyButton clipId={clip.id} />
+            <BuyButton clipId={clip.id} isFree={isFree} />
           </div>
         </div>
       </div>

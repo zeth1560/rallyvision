@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const bucket = process.env.AWS_S3_BUCKET!;
@@ -48,4 +48,21 @@ export async function createSignedPreviewUrl(key: string) {
   return await getSignedUrl(s3, command, {
     expiresIn: 3600, // 1 hour for previews to handle range requests
   });
+}
+
+function encodeS3CopySource(sourceKey: string) {
+  return [bucket, ...sourceKey.split('/')].map(encodeURIComponent).join('/');
+}
+
+export async function copyObjectWithinBucket(
+  sourceKey: string,
+  destinationKey: string
+) {
+  const command = new CopyObjectCommand({
+    Bucket: bucket,
+    CopySource: encodeS3CopySource(sourceKey),
+    Key: destinationKey,
+  });
+
+  return await s3.send(command);
 }
