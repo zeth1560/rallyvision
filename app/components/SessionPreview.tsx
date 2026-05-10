@@ -17,6 +17,8 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
   const [frameReady, setFrameReady] = useState(false);
   const [overlayIndex, setOverlayIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -139,6 +141,30 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
   }, [isPlaying]);
 
   useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const updateTime = () => {
+      setCurrentTime(video.currentTime);
+      setDuration(video.duration);
+    };
+
+    const updateDuration = () => {
+      setDuration(video.duration);
+    };
+
+    video.addEventListener('timeupdate', updateTime);
+    video.addEventListener('loadedmetadata', updateDuration);
+    video.addEventListener('durationchange', updateDuration);
+
+    return () => {
+      video.removeEventListener('timeupdate', updateTime);
+      video.removeEventListener('loadedmetadata', updateDuration);
+      video.removeEventListener('durationchange', updateDuration);
+    };
+  }, []);
+
+  useEffect(() => {
     setOverlayIndex(0);
     setIsPlaying(false);
   }, [slug]);
@@ -191,7 +217,46 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
   }
 
   return (
-    <div
+    <>
+      <style>{`
+        input[type="range"] {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 100%;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        input[type="range"]::-webkit-slider-runnable-track {
+          background: transparent;
+          height: 4px;
+        }
+
+        input[type="range"]::-moz-range-track {
+          background: transparent;
+          height: 4px;
+        }
+      `}</style>
+      <div
       style={{
         width: '100%',
         aspectRatio: '16 / 9',
@@ -224,7 +289,6 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
 
       <video
         ref={videoRef}
-        controls
         preload="metadata"
         playsInline
         muted
@@ -246,6 +310,105 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
         <source src={previewUrl} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
+
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+          padding: '20px 12px 12px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          zIndex: 2,
+          pointerEvents: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => {
+            if (videoRef.current) {
+              if (videoRef.current.paused) {
+                videoRef.current.play();
+              } else {
+                videoRef.current.pause();
+              }
+            }
+          }}
+          style={{
+            background: 'rgba(255,255,255,0.2)',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            padding: '6px 10px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            transition: 'background 0.2s',
+            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.2)';
+          }}
+        >
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={duration ? (currentTime / duration) * 100 : 0}
+          onChange={(e) => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
+            }
+          }}
+          style={{
+            flex: 1,
+            height: '4px',
+            cursor: 'pointer',
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            borderRadius: '2px',
+            background: 'rgba(255,255,255,0.3)',
+            outline: 'none',
+          } as React.CSSProperties & {WebkitAppearance: string}}
+        />
+
+        <button
+          onClick={() => {
+            if (videoRef.current) {
+              videoRef.current.requestFullscreen?.();
+            }
+          }}
+          style={{
+            background: 'rgba(255,255,255,0.2)',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            padding: '6px 10px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            transition: 'background 0.2s',
+            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.2)';
+          }}
+        >
+          ⛶
+        </button>
+      </div>
 
       {isPlaying && frameReady && previewUrl && (
         <div
@@ -270,6 +433,7 @@ export default function SessionPreview({ slug }: SessionPreviewProps) {
           {['ReplayTrove Preview', 'HD Version Available After Purchase'][overlayIndex]}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
