@@ -9,7 +9,7 @@ type Video = {
   clip_slug: string;
   recorded_at: string | null;
   booking_id: string | null;
-  thumbnail_s3_key: string | null;
+  thumbnail_url: string | null;
   youtube_url: string | null;
   youtube_status: string;
   download_expires_at: string | null;
@@ -139,8 +139,9 @@ export default function PlayerTroveContent() {
                     style={{
                       width: '120px',
                       height: '80px',
-                      background: '#f0f0f0',
                       borderRadius: '8px',
+                      overflow: 'hidden',
+                      background: '#f0f0f0',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -148,7 +149,20 @@ export default function PlayerTroveContent() {
                       fontSize: '12px',
                     }}
                   >
-                    {video.thumbnail_s3_key ? 'Thumbnail' : 'No Thumbnail'}
+                    {video.thumbnail_url ? (
+                      <img
+                        src={video.thumbnail_url}
+                        alt={`Thumbnail for ${video.clip_slug}`}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    ) : (
+                      'No Thumbnail'
+                    )}
                   </div>
 
                   <div style={{ flex: 1 }}>

@@ -50,6 +50,22 @@ export async function createSignedPreviewUrl(key: string) {
   });
 }
 
+export async function createSignedObjectUrl(
+  key: string,
+  contentType?: string
+) {
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ResponseContentDisposition: 'inline',
+    ...(contentType ? { ResponseContentType: contentType } : {}),
+  });
+
+  return await getSignedUrl(s3, command, {
+    expiresIn: 3600,
+  });
+}
+
 function encodeS3CopySource(sourceKey: string) {
   return [bucket, ...sourceKey.split('/')].map(encodeURIComponent).join('/');
 }
