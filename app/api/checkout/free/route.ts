@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     // Check if all requested clips were found
     const foundClipIds = new Set(clips.map((c) => c.id));
-    const missingClipIds = clipIds.filter((id) => !foundClipIds.has(id));
+    const missingClipIds = clipIds.filter((id: string) => !foundClipIds.has(id));
 
     if (missingClipIds.length > 0) {
       console.warn('[FREE_CHECKOUT] Some clips not found', {
