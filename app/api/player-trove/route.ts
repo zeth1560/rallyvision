@@ -12,16 +12,24 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // TODO: Remove this route or add proper authentication before production
-  // This is temporary for development only
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json(
-      { error: 'This endpoint is not available in production' },
-      { status: 403 }
-    );
-  }
+
+
+  // TODO: SECURITY - Before full public launch, implement magic-link authentication
+  // instead of using email query param. This temporary implementation allows free checkout
+  // to work end-to-end but should be replaced with:
+  // 1. User requests magic link with POST /api/player-trove/request-link
+  // 2. Email sent with signed JWT token
+  // 3. Link redirects to /player-trove?token={jwt}
+  // 4. Validate JWT server-side and create secure session
+  // 5. Use session/cookie-based auth instead of email param
+  // GitHub issue: https://github.com/zeth1560/rallyvision/issues/XXX
 
   const normalizedEmail = email.toLowerCase().trim();
+
+  console.log('[PlayerTrove] Video access requested', {
+    email: normalizedEmail,
+    timestamp: new Date().toISOString(),
+  });
 
   const { data: accessRecords, error } = await supabaseAdmin
     .from('player_video_access')
@@ -46,7 +54,11 @@ export async function GET(request: NextRequest) {
     .order('purchased_at', { ascending: false });
 
   if (error) {
-    console.error('Failed to fetch player video access:', error);
+    console.error('[PlayerTrove] Failed to fetch access records', {
+      email: normalizedEmail,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
     return NextResponse.json(
       { error: 'Failed to fetch access records' },
       { status: 500 }
@@ -67,6 +79,12 @@ export async function GET(request: NextRequest) {
     coach_review_expires_at: record.coach_review_expires_at,
     purchased_at: record.purchased_at,
   })) || [];
+
+  console.log('[PlayerTrove] Videos fetched successfully', {
+    email: normalizedEmail,
+    video_count: videos.length,
+    timestamp: new Date().toISOString(),
+  });
 
   return NextResponse.json({
     email: normalizedEmail,

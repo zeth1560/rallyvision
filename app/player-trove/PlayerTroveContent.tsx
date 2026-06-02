@@ -39,9 +39,27 @@ export default function PlayerTroveContent() {
     }
 
     fetch(`/api/player-trove?email=${encodeURIComponent(email)}`)
-      .then(res => res.json())
+      .then(async res => {
+        const json = await res.json();
+        if (!res.ok) {
+          const errorMsg = json?.error || `HTTP ${res.status}`;
+          throw new Error(errorMsg);
+        }
+        return json;
+      })
       .then(setData)
-      .catch(err => setError(err.message))
+      .catch(err => {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        setError(errorMsg);
+        // Log error in development for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[PlayerTroveContent] Failed to load videos', {
+            email,
+            error: errorMsg,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      })
       .finally(() => setLoading(false));
   }, [email]);
 
