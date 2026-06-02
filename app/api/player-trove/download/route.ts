@@ -32,14 +32,7 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     const { data: accessRecord, error: accessError } = await supabaseAdmin
       .from('player_video_access')
-      .select(`
-        id,
-        clip_id,
-        downloaded_at,
-        download_expires_at,
-        purchased_s3_key,
-        clips(id, title, s3_key)
-      `)
+      .select('id, clip_id, downloaded_at, download_expires_at, purchased_s3_key')
       .eq('id', accessId)
       .eq('access_status', 'active')
       .single();
@@ -78,38 +71,56 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     let s3Key: string | null = accessRecord.purchased_s3_key;
     let usedPurchasedKey = true;
+    let clipTitle: string | null = null;
 
     if (!s3Key) {
-      const clipArray = accessRecord.clips as Array<{
-        id: string;
-        title: string | null;
-        s3_key: string | null;
-      }> | null;
-      const clip = clipArray?.[0] ?? null;
+      const { data: clip, error: clipError } = await supabaseAdmin
+        .from('clips')
+        .select('title, s3_key')
+        .eq('id', accessRecord.clip_id)
+        .single();
 
-      console.log('[PlayerTrove Download] No purchased_s3_key found, using clip.s3_key fallback', {
-        access_id: accessId,
-        clip_id: clip?.id,
-      });
-
-      s3Key = clip?.s3_key ?? null;
-      usedPurchasedKey = false;
-
-      if (!s3Key) {
-        console.error('[PlayerTrove Download] No downloadable key available', {
+      if (clipError || !clip) {
+        console.error('[PlayerTrove Download] Clip lookup failed for fallback key', {
           access_id: accessId,
+          clip_id: accessRecord.clip_id,
+          error: clipError,
         });
         return NextResponse.json(
-          { error: 'No downloadable file is available for this access record' },
-          { status: 400 }
+          { error: 'Clip not found' },
+          { status: 404 }
         );
       }
+
+      s3Key = clip.s3_key;
+      clipTitle = clip.title;
+      usedPurchasedKey = false;
+
+      console.log('[PlayerTrove Download] Falling back to clip.s3_key', {
+        access_id: accessId,
+        clip_id: accessRecord.clip_id,
+        s3_key: s3Key,
+      });
+    } else {
+      console.log('[PlayerTrove Download] Using purchased_s3_key', {
+        access_id: accessId,
+        s3_key: s3Key,
+      });
+    }
+
+    if (!s3Key) {
+      console.error('[PlayerTrove Download] No downloadable key available after fallback', {
+        access_id: accessId,
+      });
+      return NextResponse.json(
+        { error: 'No downloadable file is available for this access record' },
+        { status: 400 }
+      );
     }
 
     // =========================================================================
     // Generate signed download URL
     // =========================================================================
-    const clipTitle = (accessRecord.clips as any)?.title;
     const filenameBase = safeFilename(clipTitle || accessRecord.clip_id);
     const signedUrl = await createSignedDownloadUrl(
       s3Key,
