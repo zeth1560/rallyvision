@@ -29,6 +29,23 @@ export async function GET(request: Request) {
       );
     }
 
+    // =========================================================================
+    // SECURITY: Reject free order bypass attempts
+    // =========================================================================
+    if (sessionId.startsWith('free_')) {
+      console.error('[SECURITY] Attempt to download free clip via paid orders flow', {
+        clip_id: clipId,
+        session_id: sessionId,
+        timestamp: new Date().toISOString(),
+        note: 'Free clips must be downloaded via PlayerTrove after claiming with email',
+      });
+
+      return NextResponse.json(
+        { error: 'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.' },
+        { status: 403 }
+      );
+    }
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .select('id')

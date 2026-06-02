@@ -28,6 +28,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing session_id' }, { status: 400 });
     }
 
+    // =========================================================================
+    // SECURITY: Reject free order bypass attempts
+    // =========================================================================
+    if (sessionId.startsWith('free_')) {
+      console.error('[SECURITY] Attempt to download free clips via paid orders flow (download-all)', {
+        session_id: sessionId,
+        timestamp: new Date().toISOString(),
+        note: 'Free clips must be downloaded via PlayerTrove after claiming with email',
+      });
+
+      return NextResponse.json(
+        { error: 'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.' },
+        { status: 403 }
+      );
+    }
+
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
       .select('clip_id, status')

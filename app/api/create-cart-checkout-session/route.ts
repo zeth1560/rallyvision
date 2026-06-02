@@ -75,37 +75,24 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SITE_URL ||
       'http://localhost:3000';
 
+    // =========================================================================
+    // FREE CLIPS: MUST use /api/player-trove/claim-free endpoint instead
+    // =========================================================================
     if (totalPriceCents === 0) {
-      const syntheticSessionId = `free_${Date.now()}_${Math.random()
-        .toString(36)
-        .slice(2, 10)}`;
-
-      const ordersToInsert = resolvedClips.map((clip) => ({
-        clip_id: clip.id,
-        email: null,
-        stripe_checkout_session_id: syntheticSessionId,
-        stripe_payment_intent_id: null,
-        amount_total: 0,
-        currency: 'usd',
-        status: 'paid',
-      }));
-
-      const { error: ordersError } = await supabaseAdmin
-        .from('orders')
-        .insert(ordersToInsert);
-
-      if (ordersError) {
-        return NextResponse.json(
-          { error: ordersError.message },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        url: `${appUrl}/success?session_id=${encodeURIComponent(
-          syntheticSessionId
-        )}`,
+      console.error('[SECURITY] Attempt to checkout free cart (all free clips) via paid flow', {
+        clip_ids: resolvedClips.map((c) => c.id),
+        total_price_cents: totalPriceCents,
+        timestamp: new Date().toISOString(),
+        note: 'Free clips must be claimed individually via /api/player-trove/claim-free with email',
       });
+
+      return NextResponse.json(
+        {
+          error: 'Carts containing only free clips cannot be purchased through checkout. Claim each free clip individually using the "Claim Free Access" option with your email instead.',
+          errorCode: 'FREE_CLIPS_CART_BYPASS_ATTEMPT',
+        },
+        { status: 400 }
+      );
     }
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =

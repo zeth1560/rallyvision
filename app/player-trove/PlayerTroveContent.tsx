@@ -29,6 +29,7 @@ export default function PlayerTroveContent() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingClip, setDownloadingClip] = useState<string | null>(null);
 
   useEffect(() => {
     if (!email) {
@@ -43,6 +44,25 @@ export default function PlayerTroveContent() {
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [email]);
+
+  function handleDownloadClick(clipId: string) {
+    if (!email) return;
+
+    setDownloadingClip(clipId);
+
+    console.log('[PlayerTrove] Download started', {
+      email,
+      clip_id: clipId,
+      timestamp: new Date().toISOString(),
+    });
+
+    window.location.href = `/api/player-trove/download?email=${encodeURIComponent(email)}&clip_id=${encodeURIComponent(clipId)}`;
+
+    // Reset state after 4 seconds
+    setTimeout(() => {
+      setDownloadingClip(null);
+    }, 4000);
+  }
 
   if (loading) {
     return (
@@ -146,17 +166,19 @@ export default function PlayerTroveContent() {
 
                       {/* Download HD File */}
                       <button
-                        disabled={downloadExpired}
+                        disabled={downloadExpired || downloadingClip === video.clip_id}
                         style={{
                           padding: '8px 16px',
                           borderRadius: '8px',
                           border: 'none',
                           background: downloadExpired ? '#ccc' : '#007bff',
                           color: 'white',
-                          cursor: downloadExpired ? 'not-allowed' : 'pointer',
+                          cursor: downloadExpired || downloadingClip === video.clip_id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingClip === video.clip_id ? 0.6 : 1,
                         }}
+                        onClick={() => !downloadExpired && handleDownloadClick(video.clip_id)}
                       >
-                        {downloadExpired ? 'Download Expired' : 'Download HD File'}
+                        {downloadExpired ? 'Download Expired' : downloadingClip === video.clip_id ? 'Preparing...' : 'Download HD File'}
                       </button>
 
                       {/* Send to PB.Vision */}

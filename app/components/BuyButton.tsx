@@ -17,6 +17,23 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
     try {
       setLoading(true);
       setError(null);
+
+      console.log('[BuyButton] handlePaidClick triggered', {
+        clipId,
+        isFree,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (isFree) {
+        console.error('[SECURITY] Paid checkout called for FREE clip - should use handleFreeClick instead!', {
+          clipId,
+          isFree,
+          timestamp: new Date().toISOString(),
+        });
+        setError('Error: This clip should be claimed using the free access flow. Please refresh the page.');
+        return;
+      }
+
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,6 +52,12 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
 
       console.log('Parsed response data:', data);
       console.log('Response status:', response.status);
+
+      if (data.errorCode === 'FREE_CLIP_BYPASS_ATTEMPT') {
+        console.error('[SECURITY] Backend rejected free clip checkout attempt', data);
+        setError('This clip is free and must be claimed with your email instead. Please use the "Claim Free Access" button.');
+        return;
+      }
 
       if (data.url) {
         window.location.href = data.url;
@@ -59,6 +82,13 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
     try {
       setLoading(true);
       setError(null);
+
+      console.log('[BuyButton] handleFreeClick triggered', {
+        clipId,
+        email: email.trim().toLowerCase(),
+        timestamp: new Date().toISOString(),
+      });
+
       const response = await fetch('/api/player-trove/claim-free', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,9 +101,21 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
       const data = await response.json();
 
       if (!response.ok) {
+        console.error('[BuyButton] Free claim failed', {
+          status: response.status,
+          error: data.error,
+          clipId,
+        });
         setError(data.error || 'Failed to claim free access');
         return;
       }
+
+      console.log('[BuyButton] Free claim succeeded', {
+        clipId,
+        email: email.trim().toLowerCase(),
+        timestamp: new Date().toISOString(),
+        note: 'player_video_access record created with access_source=free_pilot',
+      });
 
       setSuccess(true);
       const normalizedEmail = email.trim().toLowerCase();
@@ -82,8 +124,8 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
         window.location.href = `/player-trove?email=${encodeURIComponent(normalizedEmail)}`;
       }, 2000);
     } catch (error) {
+      console.error('[BuyButton] Free claim error:', error);
       setError('Fetch failed. Check browser console.');
-      console.error('Free claim error:', error);
     } finally {
       setLoading(false);
     }
