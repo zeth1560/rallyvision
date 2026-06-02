@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 
 type Video = {
+  access_id: string;
   clip_id: string;
   clip_slug: string;
   recorded_at: string | null;
@@ -63,23 +64,56 @@ export default function PlayerTroveContent() {
       .finally(() => setLoading(false));
   }, [email]);
 
-  function handleDownloadClick(clipId: string) {
-    if (!email) return;
-
-    setDownloadingClip(clipId);
+  async function handleDownloadClick(accessId: string) {
+    setDownloadingClip(accessId);
 
     console.log('[PlayerTrove] Download started', {
-      email,
-      clip_id: clipId,
+      access_id: accessId,
       timestamp: new Date().toISOString(),
     });
 
-    window.location.href = `/api/player-trove/download?email=${encodeURIComponent(email)}&clip_id=${encodeURIComponent(clipId)}`;
+    try {
+      const response = await fetch(`/api/player-trove/download?access_id=${encodeURIComponent(accessId)}`);
+      const result = await response.json();
 
-    // Reset state after 4 seconds
-    setTimeout(() => {
-      setDownloadingClip(null);
-    }, 4000);
+      if (!response.ok) {
+        const errorMsg = result?.error || `HTTP ${response.status}`;
+        console.error('[PlayerTrove] Failed to fetch download URL', {
+          access_id: accessId,
+          error: errorMsg,
+          status: response.status,
+        });
+        setError(errorMsg);
+        return;
+      }
+
+      if (!result?.url) {
+        console.error('[PlayerTrove] Download URL missing in response', {
+          access_id: accessId,
+          result,
+        });
+        setError('Download URL not returned');
+        return;
+      }
+
+      console.log('[PlayerTrove] Download URL obtained', {
+        access_id: accessId,
+        url: result.url,
+      });
+
+      window.location.href = result.url;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[PlayerTrove] Download request failed', {
+        access_id: accessId,
+        error: errorMsg,
+      });
+      setError(errorMsg);
+    } finally {
+      setTimeout(() => {
+        setDownloadingClip(null);
+      }, 4000);
+    }
   }
 
   if (loading) {
@@ -124,7 +158,7 @@ export default function PlayerTroveContent() {
 
             return (
               <div
-                key={video.clip_id}
+                key={video.access_id}
                 style={{
                   border: '1px solid #dedede',
                   borderRadius: '16px',
@@ -198,19 +232,19 @@ export default function PlayerTroveContent() {
 
                       {/* Download HD File */}
                       <button
-                        disabled={downloadExpired || downloadingClip === video.clip_id}
+                        disabled={downloadExpired || downloadingClip === video.access_id}
                         style={{
                           padding: '8px 16px',
                           borderRadius: '8px',
                           border: 'none',
                           background: downloadExpired ? '#ccc' : '#007bff',
                           color: 'white',
-                          cursor: downloadExpired || downloadingClip === video.clip_id ? 'not-allowed' : 'pointer',
-                          opacity: downloadingClip === video.clip_id ? 0.6 : 1,
+                          cursor: downloadExpired || downloadingClip === video.access_id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingClip === video.access_id ? 0.6 : 1,
                         }}
-                        onClick={() => !downloadExpired && handleDownloadClick(video.clip_id)}
+                        onClick={() => !downloadExpired && handleDownloadClick(video.access_id)}
                       >
-                        {downloadExpired ? 'Download Expired' : downloadingClip === video.clip_id ? 'Preparing...' : 'Download HD File'}
+                        {downloadExpired ? 'Download Expired' : downloadingClip === video.access_id ? 'Preparing...' : 'Download HD File'}
                       </button>
 
                       {/* Send to PB.Vision */}

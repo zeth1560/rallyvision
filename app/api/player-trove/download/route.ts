@@ -12,28 +12,18 @@ function safeFilename(name: string) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const email = searchParams.get('email')?.trim().toLowerCase();
-    const clipId = searchParams.get('clip_id')?.trim();
+    const accessId = searchParams.get('access_id')?.trim();
 
-    if (!email) {
-      console.warn('[PlayerTrove Download] Missing email parameter');
+    if (!accessId || !uuidRegex.test(accessId)) {
+      console.warn('[PlayerTrove Download] Invalid or missing access_id', { access_id: accessId });
       return NextResponse.json(
-        { error: 'Email is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!clipId || !uuidRegex.test(clipId)) {
-      console.warn('[PlayerTrove Download] Invalid or missing clip_id', { clipId });
-      return NextResponse.json(
-        { error: 'Invalid clip_id' },
+        { error: 'Invalid access_id' },
         { status: 400 }
       );
     }
 
     console.log('[PlayerTrove Download] Download requested', {
-      email,
-      clip_id: clipId,
+      access_id: accessId,
       timestamp: new Date().toISOString(),
     });
 
@@ -42,16 +32,21 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     const { data: accessRecord, error: accessError } = await supabaseAdmin
       .from('player_video_access')
-      .select('id, email, clip_id, downloaded_at, download_expires_at, purchased_s3_key')
-      .eq('email', email)
-      .eq('clip_id', clipId)
+      .select(`
+        id,
+        clip_id,
+        downloaded_at,
+        download_expires_at,
+        purchased_s3_key,
+        clips(id, title, s3_key)
+      `)
+      .eq('id', accessId)
       .eq('access_status', 'active')
       .single();
 
     if (accessError || !accessRecord) {
       console.warn('[PlayerTrove Download] No active access record found', {
-        email,
-        clip_id: clipId,
+        access_id: accessId,
         error: accessError,
       });
       return NextResponse.json(
@@ -68,8 +63,7 @@ export async function GET(request: NextRequest) {
       const expiresAt = new Date(accessRecord.download_expires_at);
       if (now > expiresAt) {
         console.warn('[PlayerTrove Download] Download access expired', {
-          email,
-          clip_id: clipId,
+          access_id: accessId,
           download_expires_at: accessRecord.download_expires_at,
         });
         return NextResponse.json(
@@ -83,32 +77,30 @@ export async function GET(request: NextRequest) {
     // Use purchased_s3_key if available, fallback to clip.s3_key
     // =========================================================================
     let s3Key: string | null = accessRecord.purchased_s3_key;
+    let usedPurchasedKey = true;
 
     if (!s3Key) {
-      console.log('[PlayerTrove Download] No purchased_s3_key found, fetching from clips table', {
-        clip_id: clipId,
+      const clipArray = accessRecord.clips as Array<{
+        id: string;
+        title: string | null;
+        s3_key: string | null;
+      }> | null;
+      const clip = clipArray?.[0] ?? null;
+
+      console.log('[PlayerTrove Download] No purchased_s3_key found, using clip.s3_key fallback', {
+        access_id: accessId,
+        clip_id: clip?.id,
       });
 
-      const { data: clip, error: clipError } = await supabaseAdmin
-        .from('clips')
-        .select('id, title, s3_key')
-        .eq('id', clipId)
-        .single();
-
-      if (clipError || !clip) {
-        console.error('[PlayerTrove Download] Clip not found', { clipId, clipError });
-        return NextResponse.json(
-          { error: 'Clip not found' },
-          { status: 404 }
-        );
-      }
-
-      s3Key = clip.s3_key;
+      s3Key = clip?.s3_key ?? null;
+      usedPurchasedKey = false;
 
       if (!s3Key) {
-        console.error('[PlayerTrove Download] No s3_key found on clip', { clipId });
+        console.error('[PlayerTrove Download] No downloadable key available', {
+          access_id: accessId,
+        });
         return NextResponse.json(
-          { error: 'Clip file not available' },
+          { error: 'No downloadable file is available for this access record' },
           { status: 400 }
         );
       }
@@ -117,22 +109,17 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     // Generate signed download URL
     // =========================================================================
-    const { data: clip, error: clipError } = await supabaseAdmin
-      .from('clips')
-      .select('id, title')
-      .eq('id', clipId)
-      .single();
-
-    const filenameBase = safeFilename(clip?.title || 'clip');
+    const clipTitle = (accessRecord.clips as any)?.title;
+    const filenameBase = safeFilename(clipTitle || accessRecord.clip_id);
     const signedUrl = await createSignedDownloadUrl(
       s3Key,
       `${filenameBase}.mp4`
     );
 
     console.log('[PlayerTrove Download] Signed URL generated', {
-      email,
-      clip_id: clipId,
-      using_purchased_key: !!accessRecord.purchased_s3_key,
+      access_id: accessId,
+      used_purchased_key: usedPurchasedKey,
+      s3_key: s3Key,
       timestamp: new Date().toISOString(),
     });
 
@@ -152,7 +139,7 @@ export async function GET(request: NextRequest) {
       // Don't fail the download if we can't update the timestamp
     }
 
-    return NextResponse.redirect(signedUrl, 302);
+    return NextResponse.json({ url: signedUrl });
   } catch (error) {
     console.error('[PlayerTrove Download] Route error:', error);
 
