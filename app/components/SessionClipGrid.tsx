@@ -44,6 +44,9 @@ export default function SessionClipGrid({
 
   const [cart, setCart] = useState<string[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
+  const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -99,8 +102,101 @@ export default function SessionClipGrid({
     }, 0);
   }, [cart, clips]);
 
+  // Determine cart composition
+  const cartClips = cart.map((id) => clips.find((c) => c.id === id)).filter(Boolean) as Clip[];
+  const freeClipsInCart = cartClips.filter((c) => (c.price_cents ?? 0) === 0);
+  const paidClipsInCart = cartClips.filter((c) => (c.price_cents ?? 0) > 0);
+  const isCartAllFree = freeClipsInCart.length > 0 && paidClipsInCart.length === 0;
+  const isCartMixed = freeClipsInCart.length > 0 && paidClipsInCart.length > 0;
+
   async function handleCheckout() {
     try {
+      setCheckoutError(null);
+      setIsCheckingOut(true);
+
+      console.log('[SessionClipGrid] Checkout started', {
+        cart_size: cart.length,
+        free_clips: freeClipsInCart.length,
+        paid_clips: paidClipsInCart.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Handle mixed cart
+      if (isCartMixed) {
+        console.warn('[SessionClipGrid] Mixed cart detected', {
+          cart: cart,
+          free_clip_ids: freeClipsInCart.map((c) => c.id),
+          paid_clip_ids: paidClipsInCart.map((c) => c.id),
+        });
+        setCheckoutError('Please check out free and paid clips separately');
+        return;
+      }
+
+      // Handle all-free cart
+      if (isCartAllFree) {
+        console.log('[SessionClipGrid] All-free cart detected, prompting for email', {
+          cart: cart,
+          clip_ids: freeClipsInCart.map((c) => c.id),
+        });
+
+        if (!checkoutEmail || !checkoutEmail.trim()) {
+          setCheckoutError('Please enter your email address');
+          return;
+        }
+
+        const email = checkoutEmail.trim().toLowerCase();
+
+        console.log('[SessionClipGrid] Calling free checkout endpoint', {
+          email,
+          clip_ids: cart,
+          timestamp: new Date().toISOString(),
+        });
+
+        const response = await fetch('/api/checkout/free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            clip_ids: cart,
+          }),
+        });
+
+        const data = await response.json();
+
+        console.log('[SessionClipGrid] Free checkout response', {
+          status: response.status,
+          has_redirect_url: !!data.redirect_url,
+          data_keys: Object.keys(data),
+        });
+
+        if (!response.ok) {
+          const errorMsg = data.error || 'Checkout failed';
+          console.error('[SessionClipGrid] Free checkout error', {
+            status: response.status,
+            error: errorMsg,
+            data,
+          });
+          setCheckoutError(errorMsg);
+          return;
+        }
+
+        if (data.redirect_url) {
+          console.log('[SessionClipGrid] Redirecting to player-trove', {
+            redirect_url: data.redirect_url,
+          });
+          window.location.href = data.redirect_url;
+        } else {
+          setCheckoutError('Checkout completed but no redirect URL provided');
+        }
+        return;
+      }
+
+      // Handle all-paid cart (existing flow)
+      console.log('[SessionClipGrid] All-paid cart, using Stripe checkout', {
+        cart: cart,
+        clip_ids: paidClipsInCart.map((c) => c.id),
+      });
+
       const response = await fetch('/api/create-cart-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,15 +205,24 @@ export default function SessionClipGrid({
 
       const data = await response.json();
 
+      console.log('[SessionClipGrid] Cart checkout response', {
+        status: response.status,
+        has_url: !!data.url,
+        error_code: data.errorCode,
+      });
+
       if (data.url) {
         window.location.href = data.url;
       } else {
-        alert(data.error || 'Checkout failed');
-        console.error(data);
+        const errorMsg = data.error || 'Checkout failed';
+        console.error('[SessionClipGrid] Cart checkout error', { errorMsg, data });
+        setCheckoutError(errorMsg);
       }
     } catch (err) {
-      console.error(err);
-      alert('Something went wrong starting checkout');
+      console.error('[SessionClipGrid] Checkout exception:', err);
+      setCheckoutError(err instanceof Error ? err.message : 'Something went wrong starting checkout');
+    } finally {
+      setIsCheckingOut(false);
     }
   }
 
@@ -506,15 +611,84 @@ export default function SessionClipGrid({
                     Total: ${(total / 100).toFixed(2)}
                   </p>
 
+                  {checkoutError && (
+                    <div
+                      style={{
+                        backgroundColor: '#ffebee',
+                        color: '#c62828',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        marginBottom: '12px',
+                        fontSize: '0.9rem',
+                      }}
+                    >
+                      {checkoutError}
+                    </div>
+                  )}
+
+                  {isCartAllFree && (
+                    <div
+                      style={{
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          marginBottom: '6px',
+                          color: '#333',
+                        }}
+                      >
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="your@email.com"
+                        value={checkoutEmail}
+                        onChange={(e) => setCheckoutEmail(e.target.value)}
+                        disabled={isCheckingOut}
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          border: '1px solid #ddd',
+                          borderRadius: '6px',
+                          fontSize: '0.95rem',
+                          boxSizing: 'border-box',
+                          opacity: isCheckingOut ? 0.6 : 1,
+                          cursor: isCheckingOut ? 'not-allowed' : 'auto',
+                        }}
+                      />
+                    </div>
+                  )}
+
                   <div className="cart-actions">
                     <button
                       onClick={handleCheckout}
+                      disabled={isCheckingOut || cart.length === 0}
                       className="checkout-button"
+                      style={{
+                        opacity: isCheckingOut || cart.length === 0 ? 0.6 : 1,
+                        cursor: isCheckingOut || cart.length === 0 ? 'not-allowed' : 'pointer',
+                      }}
                     >
-                      Checkout
+                      {isCheckingOut
+                        ? 'Processing...'
+                        : isCartAllFree
+                        ? 'Complete Free Checkout'
+                        : 'Checkout'}
                     </button>
 
-                    <button onClick={clearCart} className="clear-button">
+                    <button
+                      onClick={clearCart}
+                      disabled={isCheckingOut}
+                      className="clear-button"
+                      style={{
+                        opacity: isCheckingOut ? 0.6 : 1,
+                        cursor: isCheckingOut ? 'not-allowed' : 'pointer',
+                      }}
+                    >
                       Clear Cart
                     </button>
                   </div>

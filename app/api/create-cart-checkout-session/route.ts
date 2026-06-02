@@ -65,10 +65,15 @@ export async function POST(request: NextRequest) {
 
     const resolvedClips = await resolvePricesForClips(clips);
 
-    const totalPriceCents = resolvedClips.reduce(
-      (sum, clip) => sum + (clip.resolved_price_cents ?? 0),
-      0
-    );
+    console.log('[CART_CHECKOUT] Clips resolved', {
+      clip_count: resolvedClips.length,
+      resolved_prices: resolvedClips.map((c) => ({
+        id: c.id,
+        price_cents: c.resolved_price_cents,
+        source: c.resolved_price_source,
+      })),
+      timestamp: new Date().toISOString(),
+    });
 
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
@@ -76,25 +81,57 @@ export async function POST(request: NextRequest) {
       'http://localhost:3000';
 
     // =========================================================================
-    // FREE CLIPS: MUST use /api/player-trove/claim-free endpoint instead
+    // CHECK FOR MIXED CARTS (both free and paid)
     // =========================================================================
-    if (totalPriceCents === 0) {
-      console.error('[SECURITY] Attempt to checkout free cart (all free clips) via paid flow', {
-        clip_ids: resolvedClips.map((c) => c.id),
-        total_price_cents: totalPriceCents,
+    const freeClips = resolvedClips.filter(
+      (c) => (c.resolved_price_cents ?? 0) === 0
+    );
+    const paidClips = resolvedClips.filter(
+      (c) => (c.resolved_price_cents ?? 0) > 0
+    );
+
+    if (freeClips.length > 0 && paidClips.length > 0) {
+      console.warn('[CART_CHECKOUT] Mixed cart (free + paid) not supported', {
+        free_clip_ids: freeClips.map((c) => c.id),
+        paid_clip_ids: paidClips.map((c) => c.id),
+        total_clips: resolvedClips.length,
         timestamp: new Date().toISOString(),
-        note: 'Free clips must be claimed individually via /api/player-trove/claim-free with email',
       });
 
       return NextResponse.json(
         {
-          error: 'Carts containing only free clips cannot be purchased through checkout. Claim each free clip individually using the "Claim Free Access" option with your email instead.',
-          errorCode: 'FREE_CLIPS_CART_BYPASS_ATTEMPT',
+          error: 'Please check out free and paid clips separately',
+          errorCode: 'MIXED_CART_NOT_SUPPORTED',
+          free_clip_ids: freeClips.map((c) => c.id),
+          paid_clip_ids: paidClips.map((c) => c.id),
         },
         { status: 400 }
       );
     }
 
+    // =========================================================================
+    // FREE CLIPS: MUST use /api/checkout/free endpoint instead
+    // =========================================================================
+    if (freeClips.length > 0) {
+      console.warn('[CART_CHECKOUT] All-free cart attempting paid flow', {
+        clip_ids: freeClips.map((c) => c.id),
+        timestamp: new Date().toISOString(),
+        note: 'Redirect to /api/checkout/free with email',
+      });
+
+      return NextResponse.json(
+        {
+          error: 'Free clips must be checked out using the free checkout flow',
+          errorCode: 'FREE_CART_MUST_USE_FREE_CHECKOUT',
+          redirect_to: '/api/checkout/free',
+        },
+        { status: 400 }
+      );
+    }
+
+    // =========================================================================
+    // PAID CHECKOUT (Stripe)
+    // =========================================================================
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
       resolvedClips.map((clip) => ({
         quantity: 1,
