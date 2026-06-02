@@ -32,16 +32,32 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     const { data: accessRecord, error: accessError } = await supabaseAdmin
       .from('player_video_access')
-      .select('id, clip_id, downloaded_at, download_expires_at, purchased_s3_key')
+      .select('id, clip_id, downloaded_at, download_expires_at, purchased_s3_key, access_status')
       .eq('id', accessId)
       .eq('access_status', 'active')
       .single();
 
     if (accessError || !accessRecord) {
-      console.warn('[PlayerTrove Download] No active access record found', {
+      const { data: accessDiagnostic } = await supabaseAdmin
+        .from('player_video_access')
+        .select('id, access_status')
+        .eq('id', accessId)
+        .maybeSingle();
+
+      console.warn('[PlayerTrove Download] Access check failed', {
         access_id: accessId,
-        error: accessError,
+        active_access_error: accessError?.message,
+        access_record_found: !!accessDiagnostic,
+        access_status: accessDiagnostic?.access_status ?? 'none',
       });
+
+      if (accessDiagnostic?.id) {
+        return NextResponse.json(
+          { error: 'You do not have access to this clip' },
+          { status: 403 }
+        );
+      }
+
       return NextResponse.json(
         { error: 'You do not have access to this clip' },
         { status: 403 }
