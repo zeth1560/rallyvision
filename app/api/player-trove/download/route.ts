@@ -28,38 +28,37 @@ export async function GET(request: NextRequest) {
     });
 
     // =========================================================================
-    // Verify player_video_access record exists and is active
+    // Retrieve player_video_access by id and verify status separately
     // =========================================================================
     const { data: accessRecord, error: accessError } = await supabaseAdmin
       .from('player_video_access')
       .select('id, clip_id, downloaded_at, download_expires_at, purchased_s3_key, access_status')
       .eq('id', accessId)
-      .eq('access_status', 'active')
       .single();
 
     if (accessError || !accessRecord) {
-      const { data: accessDiagnostic } = await supabaseAdmin
-        .from('player_video_access')
-        .select('id, access_status')
-        .eq('id', accessId)
-        .maybeSingle();
-
-      console.warn('[PlayerTrove Download] Access check failed', {
+      console.warn('[PlayerTrove Download] Access record not found', {
         access_id: accessId,
-        active_access_error: accessError?.message,
-        access_record_found: !!accessDiagnostic,
-        access_status: accessDiagnostic?.access_status ?? 'none',
+        access_error: accessError?.message,
       });
-
-      if (accessDiagnostic?.id) {
-        return NextResponse.json(
-          { error: 'You do not have access to this clip' },
-          { status: 403 }
-        );
-      }
 
       return NextResponse.json(
         { error: 'You do not have access to this clip' },
+        { status: 403 }
+      );
+    }
+
+    if (accessRecord.access_status !== 'active') {
+      console.warn('[PlayerTrove Download] Access record inactive', {
+        access_id: accessId,
+        access_status: accessRecord.access_status,
+      });
+
+      return NextResponse.json(
+        {
+          error: 'You do not have access to this clip',
+          access_status: accessRecord.access_status,
+        },
         { status: 403 }
       );
     }
