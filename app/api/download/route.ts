@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createSignedDownloadUrl } from '@/lib/s3';
+import {
+  UUID_REGEX,
+  logHdDownload,
+  markAccessDownloaded,
+  resolveHdDownloadByPaidOrder,
+} from '@/lib/hd-download';
 
-const uuidRegex =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function safeFilename(name: string) {
-  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
-}
+const ROUTE = '/api/download';
 
 export async function GET(request: Request) {
   try {
@@ -22,74 +22,74 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!uuidRegex.test(clipId)) {
+    if (!UUID_REGEX.test(clipId)) {
       return NextResponse.json(
         { error: 'Invalid clip_id' },
         { status: 400 }
       );
     }
 
-    // =========================================================================
-    // SECURITY: Reject free order bypass attempts
-    // =========================================================================
     if (sessionId.startsWith('free_')) {
       console.error('[SECURITY] Attempt to download free clip via paid orders flow', {
+        route: ROUTE,
         clip_id: clipId,
         session_id: sessionId,
         timestamp: new Date().toISOString(),
-        note: 'Free clips must be downloaded via PlayerTrove after claiming with email',
       });
 
       return NextResponse.json(
-        { error: 'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.' },
+        {
+          error:
+            'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.',
+        },
         { status: 403 }
       );
     }
 
-    const { data: order, error: orderError } = await supabaseAdmin
-      .from('orders')
-      .select('id')
-      .eq('clip_id', clipId)
-      .eq('stripe_checkout_session_id', sessionId)
-      .eq('status', 'paid')
-      .single();
+    const resolved = await resolveHdDownloadByPaidOrder({
+      clipId,
+      stripeCheckoutSessionId: sessionId,
+      route: ROUTE,
+    });
 
-    if (orderError || !order) {
+    if (!resolved.ok) {
       return NextResponse.json(
-        { error: 'You do not have access to this clip' },
-        { status: 403 }
+        { error: resolved.error },
+        { status: resolved.status }
       );
     }
 
-    const { data: clip, error: clipError } = await supabaseAdmin
-      .from('clips')
-      .select('id, title, s3_key')
-      .eq('id', clipId)
-      .single();
+    const { download } = resolved;
 
-    if (clipError || !clip) {
-      return NextResponse.json(
-        { error: 'Clip not found' },
-        { status: 404 }
-      );
+    let signedUrl: string;
+    try {
+      signedUrl = await createSignedDownloadUrl(download.s3Key, download.filename);
+    } catch (signError) {
+      logHdDownload(ROUTE, {
+        clip_id: clipId,
+        session_id: sessionId,
+        access_id: download.accessId,
+        key_source: download.keySource,
+        phase: 'signed_url_failed',
+        error: signError instanceof Error ? signError.message : signError,
+      });
+      throw signError;
     }
 
-    if (!clip.s3_key) {
-      return NextResponse.json(
-        { error: 'No s3_key found for this clip' },
-        { status: 400 }
-      );
-    }
+    logHdDownload(ROUTE, {
+      clip_id: clipId,
+      session_id: sessionId,
+      access_id: download.accessId,
+      key_source: download.keySource,
+      s3_key: download.s3Key,
+      phase: 'signed_url_success',
+    });
 
-    const filenameBase = safeFilename(clip.title || 'clip');
-    const signedUrl = await createSignedDownloadUrl(
-      clip.s3_key,
-      `${filenameBase}.mp4`
-    );
+    await markAccessDownloaded(download.accessId);
 
     return NextResponse.redirect(signedUrl, 302);
   } catch (error) {
-    console.error('Download route error:', error);
+    console.error('[HD Download] /api/download route error:', error);
 
     return NextResponse.json(
       {

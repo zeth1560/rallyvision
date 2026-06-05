@@ -4,21 +4,12 @@ import { PassThrough } from 'stream';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { s3 } from '@/lib/s3';
+import { logHdDownload, resolveHdDownloadByPaidOrder } from '@/lib/hd-download';
 
 export const runtime = 'nodejs';
 
+const ROUTE = '/api/download-all';
 const bucket = process.env.AWS_S3_BUCKET!;
-
-type ClipRow = {
-  id: string;
-  title: string | null;
-  slug: string | null;
-  s3_key: string | null;
-};
-
-function safeFilename(name: string) {
-  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,18 +19,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing session_id' }, { status: 400 });
     }
 
-    // =========================================================================
-    // SECURITY: Reject free order bypass attempts
-    // =========================================================================
     if (sessionId.startsWith('free_')) {
       console.error('[SECURITY] Attempt to download free clips via paid orders flow (download-all)', {
+        route: ROUTE,
         session_id: sessionId,
         timestamp: new Date().toISOString(),
-        note: 'Free clips must be downloaded via PlayerTrove after claiming with email',
       });
 
       return NextResponse.json(
-        { error: 'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.' },
+        {
+          error:
+            'Free clips cannot be downloaded directly. Please claim access and download from your PlayerTrove.',
+        },
         { status: 403 }
       );
     }
@@ -63,22 +54,48 @@ export async function GET(request: NextRequest) {
 
     const clipIds = [...new Set(orders.map((order) => order.clip_id))];
 
-    const { data: clipsData, error: clipsError } = await supabaseAdmin
-      .from('clips')
-      .select('id, title, slug, s3_key')
-      .in('id', clipIds);
+    logHdDownload(ROUTE, {
+      session_id: sessionId,
+      clip_ids: clipIds,
+      phase: 'start',
+    });
 
-    if (clipsError) {
-      return NextResponse.json({ error: clipsError.message }, { status: 500 });
+    const resolvedDownloads = [];
+    const skippedClips: Array<{ clip_id: string; reason: string }> = [];
+
+    for (const clipId of clipIds) {
+      const resolved = await resolveHdDownloadByPaidOrder({
+        clipId,
+        stripeCheckoutSessionId: sessionId,
+        route: ROUTE,
+      });
+
+      if (!resolved.ok) {
+        skippedClips.push({ clip_id: clipId, reason: resolved.error });
+        logHdDownload(ROUTE, {
+          session_id: sessionId,
+          clip_id: clipId,
+          phase: 'clip_skipped',
+          reason: resolved.error,
+        });
+        continue;
+      }
+
+      resolvedDownloads.push(resolved.download);
     }
 
-    const clips = (clipsData ?? []).filter(
-      (clip): clip is ClipRow => Boolean(clip?.s3_key)
-    );
+    if (resolvedDownloads.length === 0) {
+      logHdDownload(ROUTE, {
+        session_id: sessionId,
+        phase: 'no_downloadable_clips',
+        skipped_clips: skippedClips,
+      });
 
-    if (clips.length === 0) {
       return NextResponse.json(
-        { error: 'No downloadable clips were found.' },
+        {
+          error: 'No downloadable clips were found for this session.',
+          skipped_clips: skippedClips,
+        },
         { status: 404 }
       );
     }
@@ -87,40 +104,50 @@ export async function GET(request: NextRequest) {
     const stream = new PassThrough();
 
     archive.on('error', (err: Error) => {
-  stream.destroy(err);
-});
+      stream.destroy(err);
+    });
 
     archive.pipe(stream);
 
-    for (const clip of clips) {
+    for (const download of resolvedDownloads) {
       const command = new GetObjectCommand({
         Bucket: bucket,
-        Key: clip.s3_key!,
+        Key: download.s3Key,
       });
 
       const s3Object = await s3.send(command);
       const body = s3Object.Body;
 
-      if (!body || typeof (body as any).pipe !== 'function') {
+      if (!body || typeof (body as NodeJS.ReadableStream & { pipe?: unknown }).pipe !== 'function') {
+        skippedClips.push({
+          clip_id: download.clipId,
+          reason: 'S3 object body unavailable',
+        });
         continue;
       }
 
-      const filenameBase = safeFilename(
-        clip.title || clip.slug || clip.id || 'clip'
-      );
-
       archive.append(body as NodeJS.ReadableStream, {
-        name: `${filenameBase}.mp4`,
+        name: download.filename,
+      });
+
+      logHdDownload(ROUTE, {
+        session_id: sessionId,
+        clip_id: download.clipId,
+        access_id: download.accessId,
+        key_source: download.keySource,
+        s3_key: download.s3Key,
+        phase: 'archived',
       });
     }
 
-    const archiveDone = new Promise<void>((resolve, reject) => {
-      stream.on('end', () => resolve());
-      stream.on('error', reject);
-      archive.on('error', reject);
-    });
-
     archive.finalize();
+
+    logHdDownload(ROUTE, {
+      session_id: sessionId,
+      phase: 'zip_ready',
+      clip_count: resolvedDownloads.length,
+      skipped_clips: skippedClips,
+    });
 
     return new NextResponse(stream as unknown as BodyInit, {
       headers: {
@@ -129,7 +156,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('download-all route error:', error);
+    console.error('[HD Download] /api/download-all route error:', error);
 
     return NextResponse.json(
       { error: 'Failed to build zip download.' },

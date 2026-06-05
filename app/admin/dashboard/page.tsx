@@ -228,6 +228,36 @@ export default async function AdminDashboardPage() {
 >
   Manage Pricing
 </Link>
+<Link
+  href="/admin/promo-codes"
+  style={{
+    display: 'inline-block',
+    padding: '12px 18px',
+    borderRadius: '10px',
+    border: '1px solid #d0d0d0',
+    background: '#ffffff',
+    color: '#17191c',
+    textDecoration: 'none',
+    fontWeight: 700,
+  }}
+>
+  Promo Codes
+</Link>
+<Link
+  href="/admin/pb-vision-requests"
+  style={{
+    display: 'inline-block',
+    padding: '12px 18px',
+    borderRadius: '10px',
+    border: '1px solid #d0d0d0',
+    background: '#ffffff',
+    color: '#17191c',
+    textDecoration: 'none',
+    fontWeight: 700,
+  }}
+>
+  PB Vision Requests
+</Link>
         <Link
           href="/admin/clips"
           style={{

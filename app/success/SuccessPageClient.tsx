@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
 import DownloadAllButton from '@/app/components/DownloadAllButton';
@@ -40,6 +40,9 @@ export default function SuccessPageClient() {
   const [error, setError] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [totalAmountCents, setTotalAmountCents] = useState<number | null>(null);
+  const [amountKnown, setAmountKnown] = useState(false);
+  const [isPaid, setIsPaid] = useState(true);
   const [downloadingClip, setDownloadingClip] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,6 +74,37 @@ export default function SuccessPageClient() {
             setOrders(data.orders);
             setEmail(data.email || null);
             setBookingId(data.bookingId || null);
+
+            // Session total from API (do not sum order rows — each holds the full Stripe total).
+            const centsFromApi =
+              typeof data.total_amount_cents === 'number'
+                ? data.total_amount_cents
+                : typeof data.orders[0]?.amount_total === 'number'
+                  ? data.orders[0].amount_total
+                  : null;
+
+            const known =
+              typeof data.amount_known === 'boolean'
+                ? data.amount_known
+                : centsFromApi != null;
+
+            // Stripe success sessions are paid unless amount_total is explicitly 0.
+            const paid =
+              typeof data.is_paid === 'boolean'
+                ? data.is_paid
+                : known
+                  ? (centsFromApi ?? 0) > 0
+                  : true;
+
+            if (!known) {
+              console.warn(
+                '[SuccessPage] amount_total unavailable; treating Stripe success session as paid'
+              );
+            }
+
+            setTotalAmountCents(centsFromApi);
+            setAmountKnown(known);
+            setIsPaid(paid);
 
             if (data.bookingId) {
               localStorage.removeItem(`replaytrove-cart-${data.bookingId}`);
@@ -107,11 +141,10 @@ export default function SuccessPageClient() {
     loadSessionWithRetry();
   }, []);
 
-  const totalPaid = useMemo(() => {
-    return orders.reduce((sum, order) => sum + (order.amount_total ?? 0), 0);
-  }, [orders]);
-
-  const isFreeOrder = orders.length > 0 && totalPaid === 0;
+  // Free only when we know the Stripe session total was exactly $0.00.
+  // Missing amount on a paid-order success session defaults to paid display.
+  const isFreeOrder = amountKnown && isPaid === false;
+  const totalPaid = totalAmountCents ?? 0;
 
   const pageTitle = isFreeOrder ? 'Clips Ready' : 'Payment Successful';
   const pageSubtitle = isFreeOrder
@@ -178,7 +211,7 @@ export default function SuccessPageClient() {
                 >
                   {orders.length} clip{orders.length !== 1 ? 's' : ''} ready for
                   download
-                  {!isFreeOrder && totalPaid > 0
+                  {!isFreeOrder && amountKnown && totalPaid > 0
                     ? ` • Total paid: $${(totalPaid / 100).toFixed(2)}`
                     : ''}
                 </p>

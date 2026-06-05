@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveClipPrice } from '@/lib/pricing';
 import { copyObjectWithinBucket } from '@/lib/s3';
+import { buildPlayerTroveRedirectUrl } from '@/lib/player-trove-token';
+import { sendPlayerTroveAccessEmail } from '@/lib/email';
+import {
+  buildFreeAccessExpiryFields,
+  grantBaseProductEntitlementsForFreeAccess,
+} from '@/lib/commerce/fulfillment';
+import { logEntitlementGrant } from '@/lib/commerce/entitlements';
 
 export async function POST(request: Request) {
   try {
@@ -38,7 +45,7 @@ export async function POST(request: Request) {
     const { data: clip, error: clipError } = await supabaseAdmin
       .from('clips')
       .select(
-        'id, title, slug, published, price_cents, club_id, court_id, created_at, s3_key, thumbnail_s3_key'
+        'id, title, slug, published, price_cents, club_id, court_id, created_at, s3_key, thumbnail_s3_key, duration_seconds, booking_id'
       )
       .eq('id', clipId)
       .single();
@@ -141,11 +148,23 @@ export async function POST(request: Request) {
     } else {
       // Create new access record
       const now = new Date();
-      const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
       const clipCreatedAt = new Date(clip.created_at || now);
       const purchaseWindowExpires = new Date(
         clipCreatedAt.getTime() + 30 * 24 * 60 * 60 * 1000
       );
+
+      const purchasedAt = now.toISOString();
+      const entitlementPatch = grantBaseProductEntitlementsForFreeAccess({
+        clip: {
+          id: clipId,
+          booking_id: clip.booking_id ?? null,
+          duration_seconds: clip.duration_seconds ?? null,
+          club_id: clip.club_id ?? null,
+          court_id: clip.court_id ?? null,
+        },
+        purchasedAt,
+      });
+      const expiryFields = buildFreeAccessExpiryFields(clip.created_at, purchasedAt);
 
       const { data: newAccess, error: insertError } = await supabaseAdmin
         .from('player_video_access')
@@ -156,12 +175,11 @@ export async function POST(request: Request) {
           stripe_checkout_session_id: null,
           access_source: 'free_pilot',
           access_status: 'active',
-          purchased_at: now.toISOString(),
+          purchased_at: purchasedAt,
           purchase_window_expires_at: purchaseWindowExpires.toISOString(),
-          download_expires_at: thirtyDaysFromNow.toISOString(),
-          pb_vision_expires_at: thirtyDaysFromNow.toISOString(),
-          coach_review_expires_at: thirtyDaysFromNow.toISOString(),
+          download_expires_at: expiryFields.download_expires_at,
           thumbnail_s3_key: clip.thumbnail_s3_key ?? null,
+          ...entitlementPatch,
         })
         .select('id')
         .single();
@@ -178,6 +196,13 @@ export async function POST(request: Request) {
         access_id: newAccess.id,
         email,
         clip_id: clipId,
+      });
+      logEntitlementGrant({
+        phase: 'free_claim_access_created',
+        access_id: newAccess.id,
+        clip_id: clipId,
+        email,
+        entitlement_patch: entitlementPatch,
       });
 
       accessRecord = newAccess;
@@ -244,10 +269,20 @@ export async function POST(request: Request) {
     }
 
 
+    try {
+      await sendPlayerTroveAccessEmail(email, { source: 'free_claim' });
+      console.log('Free claim confirmation email sent', { timestamp: new Date().toISOString() });
+    } catch (emailError) {
+      console.error('Free claim confirmation email failed', {
+        error: emailError instanceof Error ? emailError.message : emailError,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       access_id: accessRecord.id,
       message: 'Free access claimed successfully',
+      redirect_url: buildPlayerTroveRedirectUrl(email),
     });
   } catch (error) {
     console.error('Free claim route error:', error);

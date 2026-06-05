@@ -50,6 +50,23 @@ export async function createSignedPreviewUrl(key: string) {
   });
 }
 
+/** Long-lived signed URL for external services (e.g. PB Vision) to fetch an MP4. */
+export async function createSignedMp4FetchUrl(
+  key: string,
+  expiresInSeconds = 6 * 60 * 60
+) {
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ResponseContentDisposition: 'inline',
+    ResponseContentType: 'video/mp4',
+  });
+
+  return await getSignedUrl(s3, command, {
+    expiresIn: expiresInSeconds,
+  });
+}
+
 export async function createSignedObjectUrl(
   key: string,
   contentType?: string

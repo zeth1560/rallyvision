@@ -7,6 +7,17 @@ type BuyButtonProps = {
   isFree?: boolean;
 };
 
+const CHECKOUT_EMAIL_REQUIRED_MESSAGE =
+  'Please enter your email address to continue to checkout.';
+
+function normalizeCheckoutEmailInput(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isValidCheckoutEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,6 +25,18 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
   const [success, setSuccess] = useState(false);
 
   async function handlePaidClick() {
+    const normalizedEmail = normalizeCheckoutEmailInput(email);
+
+    if (!normalizedEmail) {
+      setError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
+      return;
+    }
+
+    if (!isValidCheckoutEmail(normalizedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -37,7 +60,10 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clipId }),
+        body: JSON.stringify({
+          clipId,
+          email: normalizedEmail,
+        }),
       });
 
       const text = await response.text();
@@ -59,10 +85,15 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
         return;
       }
 
+      if (data.errorCode === 'CHECKOUT_EMAIL_REQUIRED') {
+        setError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
+        return;
+      }
+
       if (data.url) {
         window.location.href = data.url;
       } else {
-        setError('Something went wrong creating checkout. Check browser console and terminal.');
+        setError(data.error || 'Something went wrong creating checkout. Check browser console and terminal.');
         console.error('Checkout error response:', data);
       }
     } catch (error) {
@@ -74,8 +105,15 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
   }
 
   async function handleFreeClick() {
-    if (!email || !email.trim()) {
-      setError('Please enter your email address');
+    const normalizedEmail = normalizeCheckoutEmailInput(email);
+
+    if (!normalizedEmail) {
+      setError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
+      return;
+    }
+
+    if (!isValidCheckoutEmail(normalizedEmail)) {
+      setError('Please enter a valid email address.');
       return;
     }
 
@@ -85,7 +123,7 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
 
       console.log('[BuyButton] handleFreeClick triggered', {
         clipId,
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         timestamp: new Date().toISOString(),
       });
 
@@ -93,7 +131,7 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim(),
+          email: normalizedEmail,
           clip_id: clipId,
         }),
       });
@@ -112,16 +150,19 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
 
       console.log('[BuyButton] Free claim succeeded', {
         clipId,
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         timestamp: new Date().toISOString(),
         note: 'player_video_access record created with access_source=free_pilot',
       });
 
       setSuccess(true);
-      const normalizedEmail = email.trim().toLowerCase();
-      // Navigate to player-trove with email after 2 seconds
+      const redirectUrl =
+        typeof data.redirect_url === 'string' && data.redirect_url
+          ? data.redirect_url
+          : `/player-trove?email=${encodeURIComponent(normalizedEmail)}`;
+
       setTimeout(() => {
-        window.location.href = `/player-trove?email=${encodeURIComponent(normalizedEmail)}`;
+        window.location.href = redirectUrl;
       }, 2000);
     } catch (error) {
       console.error('[BuyButton] Free claim error:', error);
@@ -133,33 +174,92 @@ export default function BuyButton({ clipId, isFree = false }: BuyButtonProps) {
 
   if (!isFree) {
     return (
-      <button
-        onClick={handlePaidClick}
-        disabled={loading}
-        style={{
-          marginTop: '1rem',
-          padding: '0.75rem 1.25rem',
-          background: loading ? '#666' : 'black',
-          color: 'white',
-          border: 'none',
-          borderRadius: '6px',
-          cursor: loading ? 'not-allowed' : 'pointer',
-          opacity: loading ? 0.7 : 1,
-        }}
-      >
-        {loading ? 'Loading...' : 'Buy Download'}
-      </button>
+      <div style={{ marginTop: '1rem' }}>
+        <label
+          htmlFor={`buy-email-${clipId}`}
+          style={{
+            display: 'block',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            marginBottom: '0.5rem',
+          }}
+        >
+          Email Address (required)
+        </label>
+        <input
+          id={`buy-email-${clipId}`}
+          type="email"
+          placeholder="Enter your email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={loading}
+          required
+          autoComplete="email"
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            marginBottom: '0.75rem',
+            border: '1px solid #ccc',
+            borderRadius: '6px',
+            fontSize: '1rem',
+            boxSizing: 'border-box',
+            opacity: loading ? 0.7 : 1,
+          }}
+        />
+        <button
+          onClick={handlePaidClick}
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '0.75rem 1.25rem',
+            background: loading ? '#666' : 'black',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          {loading ? 'Loading...' : 'Buy Download'}
+        </button>
+        {error && (
+          <p
+            style={{
+              color: '#d32f2f',
+              fontSize: '0.875rem',
+              marginTop: '0.5rem',
+              margin: '0.5rem 0 0 0',
+            }}
+          >
+            {error}
+          </p>
+        )}
+      </div>
     );
   }
 
   return (
     <div style={{ marginTop: '1rem' }}>
+      <label
+        htmlFor={`claim-email-${clipId}`}
+        style={{
+          display: 'block',
+          fontSize: '0.9rem',
+          fontWeight: 600,
+          marginBottom: '0.5rem',
+        }}
+      >
+        Email Address (required)
+      </label>
       <input
+        id={`claim-email-${clipId}`}
         type="email"
         placeholder="Enter your email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         disabled={loading || success}
+        required
+        autoComplete="email"
         style={{
           width: '100%',
           padding: '0.75rem',

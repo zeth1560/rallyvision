@@ -15,7 +15,9 @@ export async function GET(request: Request) {
 
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('clip_id, email, stripe_checkout_session_id, status')
+      .select(
+        'clip_id, email, stripe_checkout_session_id, status, amount_total, currency'
+      )
       .eq('stripe_checkout_session_id', sessionId)
       .eq('status', 'paid');
 
@@ -49,10 +51,33 @@ export async function GET(request: Request) {
 
     const bookingId = clips[0]?.booking_id || null;
 
+    // Stripe stores the full session total on each order row (not per-clip).
+    const rawAmount = orders.find((order) => order.amount_total != null)?.amount_total;
+    const sessionAmountTotal =
+      rawAmount == null ? null : Number(rawAmount);
+
+    const amountKnown =
+      sessionAmountTotal != null && !Number.isNaN(sessionAmountTotal);
+
+    // This route serves Stripe checkout success only (status = paid). Treat as paid
+    // unless amount_total is explicitly 0 (e.g. comped / $0 Stripe session).
+    const isPaid = amountKnown ? sessionAmountTotal > 0 : true;
+
+    if (!amountKnown) {
+      console.warn('[checkout-session] amount_total missing on orders; assuming paid', {
+        session_id: sessionId,
+        order_count: orders.length,
+      });
+    }
+
     return NextResponse.json({
       orders: enrichedOrders,
       email: orders[0]?.email || null,
       bookingId,
+      total_amount_cents: amountKnown ? sessionAmountTotal : null,
+      amount_known: amountKnown,
+      is_paid: isPaid,
+      currency: orders.find((order) => order.currency)?.currency ?? null,
     });
   } catch (error) {
     console.error('Checkout session lookup error:', error);

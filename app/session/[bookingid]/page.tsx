@@ -4,7 +4,10 @@ import type { Metadata } from 'next';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SessionClipGrid from '@/app/components/SessionClipGrid';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
-import { resolvePricesForClips } from '@/lib/pricing';
+import {
+  resolveSessionBundleQuote,
+  resolveSessionClipPricingList,
+} from '@/lib/commerce/session-pricing';
 import { calculateMinDaysRemaining } from '@/lib/calculateDaysRemaining';
 
 type ClipLookupRow = {
@@ -21,7 +24,7 @@ function formatDateLabel(dateValue: string) {
   });
 }
 
-function formatTimeRange(startTime: string | null, endTime: string | null, timeZone: string = 'America/Chicago') {
+function formatTimeRange(startTime: string | null, endTime: string | null, timeZone = 'America/Chicago') {
   if (!startTime || !endTime) return '';
 
   const start = new Date(startTime);
@@ -120,6 +123,8 @@ async function getBookingDisplayData(bookingid: string) {
     bookingDisplay,
     subtitle,
     clubName,
+    resolvedClubId,
+    resolvedCourtId,
   };
 }
 
@@ -156,7 +161,8 @@ export default async function SessionPage({
     .order('recorded_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true });
 
-  const { bookingDisplay, subtitle } = await getBookingDisplayData(bookingid);
+  const { bookingDisplay, subtitle, booking, resolvedClubId, resolvedCourtId } =
+    await getBookingDisplayData(bookingid);
 
   if (clipsError) {
     return (
@@ -166,24 +172,41 @@ export default async function SessionPage({
     );
   }
 
-  const resolvedClips = await resolvePricesForClips(clips || []);
+  const clipRows = clips ?? [];
+  const clipPricing = await resolveSessionClipPricingList(clipRows);
+  const bundleQuote = await resolveSessionBundleQuote({
+    clips: clipRows,
+    booking,
+    clubId: resolvedClubId ?? clipRows[0]?.club_id ?? null,
+    courtId: resolvedCourtId ?? clipRows[0]?.court_id ?? null,
+  });
 
-  const clipsForGrid = resolvedClips.map((clip) => ({
-    id: clip.id,
-    slug: clip.slug,
-    title: clip.title,
-    price_cents: clip.resolved_price_cents,
-    recorded_at: clip.recorded_at,
-    created_at: clip.created_at,
-    duration_seconds: clip.duration_seconds,
-  }));
+  const clipsForGrid = clipRows.map((clip) => {
+    const pricing = clipPricing.find((row) => row.id === clip.id);
 
-  const daysRemaining = calculateMinDaysRemaining(clips || []);
+    return {
+      id: clip.id,
+      slug: clip.slug ?? '',
+      title: clip.title ?? '',
+      recorded_at: clip.recorded_at,
+      created_at: clip.created_at,
+      duration_seconds: clip.duration_seconds,
+      basePriceCents: pricing?.basePriceCents ?? 0,
+      pbVisionPriceCents: pricing?.pbVisionPriceCents ?? 0,
+      coachReviewPriceCents: pricing?.coachReviewPriceCents ?? 0,
+      isFullGame: pricing?.isFullGame ?? false,
+      baseProduct: pricing?.baseProduct ?? 'clip_download',
+    };
+  });
+
+  const daysRemaining = calculateMinDaysRemaining(clipRows);
 
   return (
     <ReplayTrovePageShell title={bookingDisplay} subtitle={subtitle}>
       <SessionClipGrid
         clips={clipsForGrid}
+        clipPricing={clipPricing}
+        bundleQuote={bundleQuote}
         bookingId={bookingid}
         bookingDisplay={bookingDisplay}
         daysRemaining={daysRemaining}

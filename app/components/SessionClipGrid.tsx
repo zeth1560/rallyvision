@@ -3,19 +3,46 @@
 import { useEffect, useMemo, useState } from 'react';
 import SessionPreview from '@/app/components/SessionPreview';
 import { formatDuration } from '@/lib/format';
+import {
+  addAllClipsBaseToCart,
+  calculateCartTotalCents,
+  cartHasItems,
+  clipHasProduct,
+  emptyCartPayload,
+  getCartClipIds,
+  isClipInCart,
+  migrateStoredCart,
+  PRODUCT_LABELS,
+  setSessionBundle,
+  toggleFullGameProduct,
+  toggleShortClipInCart,
+  type CartPayload,
+  type SessionBundleQuoteClient,
+  type SessionClipPricingClient,
+} from '@/lib/commerce/cart-payload';
+import {
+  COACH_REVIEW_CUSTOMER_ENABLED,
+  type ProductType,
+} from '@/lib/commerce/products';
 
-type Clip = {
+type SessionClip = {
   id: string;
   title: string;
   slug: string;
-  price_cents: number;
   recorded_at?: string | null;
   created_at?: string | null;
   duration_seconds?: number | null;
+  basePriceCents: number;
+  pbVisionPriceCents: number;
+  coachReviewPriceCents: number;
+  isFullGame: boolean;
+  baseProduct: ProductType;
 };
 
 type Props = {
-  clips: Clip[];
+  clips: SessionClip[];
+  clipPricing: SessionClipPricingClient[];
+  bundleQuote: SessionBundleQuoteClient;
   bookingId: string;
   bookingDisplay: string;
   daysRemaining?: number;
@@ -24,9 +51,7 @@ type Props = {
 const CLUB_TIME_ZONE = 'America/Chicago';
 
 function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
-  const date = new Date(recordedAt);
-
-  return date.toLocaleTimeString('en-US', {
+  return new Date(recordedAt).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
@@ -34,19 +59,71 @@ function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
   });
 }
 
+function formatCents(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+const CHECKOUT_EMAIL_REQUIRED_MESSAGE =
+  'Please enter your email address to continue to checkout.';
+
+function normalizeCheckoutEmailInput(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isValidCheckoutEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function stripCoachReviewFromCart(cart: CartPayload): CartPayload {
+  if (COACH_REVIEW_CUSTOMER_ENABLED) {
+    return cart;
+  }
+
+  return {
+    ...cart,
+    lines: cart.lines
+      .map((line) => ({
+        ...line,
+        products: line.products.filter((product) => product !== 'coach_review'),
+      }))
+      .filter((line) => line.products.length > 0),
+  };
+}
+
+function formatClipLabel(clip: SessionClip) {
+  const durationLabel = clip.duration_seconds
+    ? ` | ${formatDuration(clip.duration_seconds)}`
+    : '';
+
+  if (clip.recorded_at) {
+    return `${formatClipTime(clip.recorded_at)}${durationLabel}`;
+  }
+
+  return `${clip.title || 'Clip'}${durationLabel}`;
+}
+
 export default function SessionClipGrid({
   clips,
+  clipPricing,
+  bundleQuote,
   bookingId,
-  bookingDisplay,
   daysRemaining = 30,
 }: Props) {
   const storageKey = `replaytrove-cart-${bookingId}`;
 
-  const [cart, setCart] = useState<string[]>([]);
+  const [cart, setCart] = useState<CartPayload>(() => emptyCartPayload(bookingId));
   const [cartLoaded, setCartLoaded] = useState(false);
   const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [promoCode, setPromoCode] = useState('');
+  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [promoDiscountCents, setPromoDiscountCents] = useState(0);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const pricingByClipId = useMemo(
+    () => new Map(clipPricing.map((pricing) => [pricing.id, pricing])),
+    [clipPricing]
+  );
 
   useEffect(() => {
     try {
@@ -55,14 +132,18 @@ export default function SessionClipGrid({
         localStorage.getItem(storageKey) || localStorage.getItem(legacyKey);
 
       if (saved) {
-        setCart(JSON.parse(saved));
+        setCart(
+          stripCoachReviewFromCart(
+            migrateStoredCart(JSON.parse(saved), clipPricing, bookingId)
+          )
+        );
       }
     } catch (error) {
       console.error('Failed to load cart from localStorage:', error);
     } finally {
       setCartLoaded(true);
     }
-  }, [storageKey, bookingId]);
+  }, [storageKey, bookingId, clipPricing]);
 
   useEffect(() => {
     if (!cartLoaded) return;
@@ -74,157 +155,239 @@ export default function SessionClipGrid({
     }
   }, [cart, storageKey, cartLoaded]);
 
-  function toggleCart(clipId: string) {
-    setCart((current) =>
-      current.includes(clipId)
-        ? current.filter((id) => id !== clipId)
-        : [...current, clipId]
-    );
-  }
+  const totalCents = useMemo(
+    () => calculateCartTotalCents(cart, pricingByClipId, bundleQuote),
+    [cart, pricingByClipId, bundleQuote]
+  );
+
+  const isCartAllFree = cartHasItems(cart) && totalCents === 0;
+  const isCartPaid = cartHasItems(cart) && totalCents > 0;
 
   function clearCart() {
-    setCart([]);
+    setCart(emptyCartPayload(bookingId));
   }
 
-  function isInCart(clipId: string) {
-    return cart.includes(clipId);
+  function handleAddAll() {
+    setCart((current) => addAllClipsBaseToCart(current, clipPricing));
   }
 
-  function addAllToCart() {
-    const allClipIds = clips.map((clip) => clip.id);
-    setCart(allClipIds);
+  function handleBundleToggle(enabled: boolean) {
+    setCart((current) => setSessionBundle(current, enabled));
   }
 
-  const total = useMemo(() => {
-    return cart.reduce((sum, id) => {
-      const clip = clips.find((c) => c.id === id);
-      return sum + (clip?.price_cents || 0);
-    }, 0);
-  }, [cart, clips]);
+  function buildPromoPriceLines() {
+    const lines: Array<{
+      clip_id?: string;
+      product_type: string;
+      original_amount_cents: number;
+    }> = [];
 
-  // Determine cart composition
-  const cartClips = cart.map((id) => clips.find((c) => c.id === id)).filter(Boolean) as Clip[];
-  const freeClipsInCart = cartClips.filter((c) => (c.price_cents ?? 0) === 0);
-  const paidClipsInCart = cartClips.filter((c) => (c.price_cents ?? 0) > 0);
-  const isCartAllFree = freeClipsInCart.length > 0 && paidClipsInCart.length === 0;
-  const isCartMixed = freeClipsInCart.length > 0 && paidClipsInCart.length > 0;
+    if (cart.sessionBundle && bundleQuote.showBundle) {
+      lines.push({
+        product_type: 'session_bundle',
+        original_amount_cents: bundleQuote.bundlePriceCents,
+      });
+    }
+
+    for (const line of cart.lines) {
+      const pricing = pricingByClipId.get(line.clipId);
+      if (!pricing) continue;
+
+      for (const product of line.products) {
+        if (
+          cart.sessionBundle &&
+          (product === 'clip_download' || product === 'full_game_hd')
+        ) {
+          continue;
+        }
+
+        const amount =
+          product === 'pb_vision'
+            ? pricing.pbVisionPriceCents
+            : product === 'coach_review'
+              ? pricing.coachReviewPriceCents
+              : pricing.basePriceCents;
+
+        lines.push({
+          clip_id: line.clipId,
+          product_type: product,
+          original_amount_cents: amount,
+        });
+      }
+    }
+
+    return lines;
+  }
+
+  async function handleApplyPromo() {
+    setPromoMessage(null);
+    setPromoDiscountCents(0);
+
+    if (!promoCode.trim()) {
+      return;
+    }
+
+    if (!cartHasItems(cart)) {
+      setPromoMessage('Add items to your cart before applying a promo code.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/promo/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: promoCode.trim(),
+          email: checkoutEmail.trim() || undefined,
+          price_lines: buildPromoPriceLines(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setPromoMessage(data.error || 'Invalid promo code');
+        return;
+      }
+
+      setPromoDiscountCents(data.discount_total_cents ?? 0);
+      setPromoMessage(`${data.code}: ${data.discount_label} applied`);
+    } catch {
+      setPromoMessage('Failed to validate promo code');
+    }
+  }
 
   async function handleCheckout() {
     try {
       setCheckoutError(null);
       setIsCheckingOut(true);
 
-      console.log('[SessionClipGrid] Checkout started', {
-        cart_size: cart.length,
-        free_clips: freeClipsInCart.length,
-        paid_clips: paidClipsInCart.length,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Handle mixed cart
-      if (isCartMixed) {
-        console.warn('[SessionClipGrid] Mixed cart detected', {
-          cart: cart,
-          free_clip_ids: freeClipsInCart.map((c) => c.id),
-          paid_clip_ids: paidClipsInCart.map((c) => c.id),
-        });
-        setCheckoutError('Please check out free and paid clips separately');
+      if (!cartHasItems(cart)) {
+        setCheckoutError('Your cart is empty');
         return;
       }
 
-      // Handle all-free cart
       if (isCartAllFree) {
-        console.log('[SessionClipGrid] All-free cart detected, prompting for email', {
-          cart: cart,
-          clip_ids: freeClipsInCart.map((c) => c.id),
-        });
+        const normalizedEmail = normalizeCheckoutEmailInput(checkoutEmail);
 
-        if (!checkoutEmail || !checkoutEmail.trim()) {
-          setCheckoutError('Please enter your email address');
+        if (!normalizedEmail) {
+          setCheckoutError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
           return;
         }
 
-        const email = checkoutEmail.trim().toLowerCase();
-
-        console.log('[SessionClipGrid] Calling free checkout endpoint', {
-          email,
-          clip_ids: cart,
-          timestamp: new Date().toISOString(),
-        });
+        if (!isValidCheckoutEmail(normalizedEmail)) {
+          setCheckoutError('Please enter a valid email address.');
+          return;
+        }
 
         const response = await fetch('/api/checkout/free', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email,
-            clip_ids: cart,
+            email: normalizedEmail,
+            session_bundle: cart.sessionBundle || undefined,
+            booking_id: cart.sessionBundle ? bookingId : undefined,
+            clip_ids: cart.sessionBundle ? undefined : getCartClipIds(cart),
           }),
         });
 
         const data = await response.json();
 
-        console.log('[SessionClipGrid] Free checkout response', {
-          status: response.status,
-          has_redirect_url: !!data.redirect_url,
-          data_keys: Object.keys(data),
-        });
-
         if (!response.ok) {
-          const errorMsg = data.error || 'Checkout failed';
-          console.error('[SessionClipGrid] Free checkout error', {
-            status: response.status,
-            error: errorMsg,
-            data,
-          });
-          setCheckoutError(errorMsg);
+          setCheckoutError(data.error || 'Checkout failed');
           return;
         }
 
         if (data.redirect_url) {
-          console.log('[SessionClipGrid] Redirecting to player-trove', {
-            redirect_url: data.redirect_url,
-          });
           window.location.href = data.redirect_url;
         } else {
           setCheckoutError('Checkout completed but no redirect URL provided');
         }
+
         return;
       }
 
-      // Handle all-paid cart (existing flow)
-      console.log('[SessionClipGrid] All-paid cart, using Stripe checkout', {
-        cart: cart,
-        clip_ids: paidClipsInCart.map((c) => c.id),
-      });
+      const normalizedEmail = normalizeCheckoutEmailInput(checkoutEmail);
+
+      if (!normalizedEmail) {
+        setCheckoutError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
+        return;
+      }
+
+      if (!isValidCheckoutEmail(normalizedEmail)) {
+        setCheckoutError('Please enter a valid email address.');
+        return;
+      }
 
       const response = await fetch('/api/create-cart-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clipIds: cart, bookingId }),
+        body: JSON.stringify({
+          bookingId,
+          cart,
+          promoCode: promoCode.trim() || undefined,
+          email: normalizedEmail,
+        }),
       });
 
       const data = await response.json();
 
-      console.log('[SessionClipGrid] Cart checkout response', {
-        status: response.status,
-        has_url: !!data.url,
-        error_code: data.errorCode,
-      });
-
       if (data.url) {
         window.location.href = data.url;
+      } else if (data.errorCode === 'CHECKOUT_EMAIL_REQUIRED') {
+        setCheckoutError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
       } else {
-        const errorMsg = data.error || 'Checkout failed';
-        console.error('[SessionClipGrid] Cart checkout error', { errorMsg, data });
-        setCheckoutError(errorMsg);
+        setCheckoutError(data.error || 'Checkout failed');
       }
     } catch (err) {
-      console.error('[SessionClipGrid] Checkout exception:', err);
-      setCheckoutError(err instanceof Error ? err.message : 'Something went wrong starting checkout');
+      setCheckoutError(
+        err instanceof Error ? err.message : 'Something went wrong starting checkout'
+      );
     } finally {
       setIsCheckingOut(false);
     }
   }
+
+  function renderCartLineItems() {
+    const items: string[] = [];
+
+    if (cart.sessionBundle && bundleQuote.showBundle) {
+      items.push(
+        `Session Bundle (${bundleQuote.billedHours} hr) — ${formatCents(bundleQuote.bundlePriceCents)}`
+      );
+    }
+
+    for (const line of cart.lines) {
+      const clip = clips.find((entry) => entry.id === line.clipId);
+      if (!clip) continue;
+
+      for (const product of line.products) {
+        if (
+          cart.sessionBundle &&
+          (product === 'clip_download' || product === 'full_game_hd')
+        ) {
+          continue;
+        }
+
+        const pricing = pricingByClipId.get(line.clipId);
+        const amount = pricing
+          ? product === 'pb_vision'
+            ? pricing.pbVisionPriceCents
+            : product === 'coach_review'
+              ? pricing.coachReviewPriceCents
+              : pricing.basePriceCents
+          : 0;
+
+        items.push(
+          `${formatClipLabel(clip)} — ${PRODUCT_LABELS[product]} — ${formatCents(amount)}`
+        );
+      }
+    }
+
+    return items;
+  }
+
+  const cartLineItems = renderCartLineItems();
 
   return (
     <>
@@ -269,10 +432,6 @@ export default function SessionClipGrid({
           white-space: nowrap;
         }
 
-        .add-all-button:hover {
-          opacity: 0.95;
-        }
-
         .retention-banner {
           background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
           border: 1px solid #ffc107;
@@ -280,10 +439,6 @@ export default function SessionClipGrid({
           padding: 16px 18px;
           margin-bottom: 24px;
           color: #856404;
-        }
-
-        .retention-banner strong {
-          color: #d39e00;
         }
 
         .clips-grid {
@@ -313,29 +468,16 @@ export default function SessionClipGrid({
           margin-top: 6px;
         }
 
-        .clip-meta-main {
-          flex: 1;
-          min-width: 0;
-        }
-
         .clip-title {
           margin: 0;
           font-size: 1.05rem;
           line-height: 1.3;
           color: #17191c;
-          word-break: break-word;
-        }
-
-        .clip-subtitle {
-          margin: 6px 0 0;
-          font-size: 0.85rem;
-          color: #666;
-          word-break: break-word;
         }
 
         .clip-price {
           flex-shrink: 0;
-          font-size: 1.2rem;
+          font-size: 1.1rem;
           font-weight: 800;
           color: #111;
           white-space: nowrap;
@@ -351,17 +493,43 @@ export default function SessionClipGrid({
           cursor: pointer;
           font-weight: 700;
           font-size: 0.96rem;
-          line-height: 1.2;
         }
 
         .clip-button.add {
           background: linear-gradient(135deg, #111315 0%, #25282d 100%);
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
         }
 
         .clip-button.remove {
           background: #3b3f45;
-          box-shadow: none;
+        }
+
+        .product-options {
+          margin-top: 14px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .product-option {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          font-size: 0.9rem;
+          color: #333;
+        }
+
+        .product-option input {
+          margin-top: 3px;
+        }
+
+        .product-option.disabled {
+          opacity: 0.55;
+        }
+
+        .bundle-note {
+          margin-top: 10px;
+          font-size: 0.85rem;
+          color: #0d6efd;
+          font-weight: 600;
         }
 
         .cart-column {
@@ -370,27 +538,28 @@ export default function SessionClipGrid({
 
         .cart-card {
           padding: 18px;
-          height: fit-content;
           position: sticky;
           top: 20px;
         }
 
         .cart-list {
           padding-left: 18px;
-          margin-top: 14px;
-          margin-bottom: 14px;
+          margin: 14px 0;
         }
 
         .cart-list-item {
           margin-bottom: 10px;
           color: #222;
           word-break: break-word;
+          font-size: 0.92rem;
         }
 
-        .cart-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
+        .bundle-offer {
+          border: 1px solid #b8daff;
+          background: #f3f9ff;
+          border-radius: 12px;
+          padding: 14px;
+          margin-bottom: 14px;
         }
 
         .checkout-button,
@@ -406,8 +575,6 @@ export default function SessionClipGrid({
           color: #ffffff;
           border: none;
           font-weight: 800;
-          font-size: 0.97rem;
-          box-shadow: 0 8px 18px rgba(201, 46, 27, 0.22);
         }
 
         .clear-button {
@@ -416,7 +583,6 @@ export default function SessionClipGrid({
           color: #111;
           border: 1px solid #ccc;
           font-weight: 700;
-          font-size: 0.95rem;
         }
 
         @media (max-width: 980px) {
@@ -430,7 +596,6 @@ export default function SessionClipGrid({
 
           .cart-card {
             position: static;
-            top: auto;
           }
         }
 
@@ -439,29 +604,12 @@ export default function SessionClipGrid({
             grid-template-columns: 1fr;
           }
         }
-
-        @media (max-width: 640px) {
-          .clips-header {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
-          .clip-card {
-            padding: 14px;
-          }
-
-          .clip-meta-row {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 8px;
-          }
-        }
       `}</style>
 
       {clips.length > 0 && (
         <div className="retention-banner">
-          <strong>Limited-time availability:</strong> Video clips are automatically
-          deleted after 30 days. You have{' '}
+          <strong>Limited-time availability:</strong> Video clips are automatically deleted
+          after 30 days. You have{' '}
           <strong>
             {daysRemaining} day{daysRemaining === 1 ? '' : 's'}
           </strong>{' '}
@@ -472,28 +620,15 @@ export default function SessionClipGrid({
       <div className="session-layout">
         <div className="clips-column">
           <div className="clips-header">
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '1.35rem',
-                color: '#16181b',
-              }}
-            >
+            <h2 style={{ margin: 0, fontSize: '1.35rem', color: '#16181b' }}>
               Available Clips
             </h2>
-
             <div className="clips-header-right">
-              <div
-                style={{
-                  fontSize: '0.95rem',
-                  color: '#555',
-                  fontWeight: 600,
-                }}
-              >
+              <div style={{ fontSize: '0.95rem', color: '#555', fontWeight: 600 }}>
                 {clips.length} clip{clips.length === 1 ? '' : 's'}
               </div>
               {clips.length > 0 && (
-                <button onClick={addAllToCart} className="add-all-button">
+                <button onClick={handleAddAll} className="add-all-button" type="button">
                   Add All to Cart
                 </button>
               )}
@@ -501,51 +636,135 @@ export default function SessionClipGrid({
           </div>
 
           {clips.length === 0 ? (
-            <div
-              className="clip-card"
-              style={{
-                color: '#555',
-              }}
-            >
+            <div className="clip-card" style={{ color: '#555' }}>
               No clips are available for this session yet.
             </div>
           ) : (
             <div className="clips-grid">
               {clips.map((clip) => {
-                const durationLabel = clip.duration_seconds
-                  ? ` | ${formatDuration(clip.duration_seconds)}`
-                  : '';
+                const hdSelected =
+                  cart.sessionBundle ||
+                  clipHasProduct(cart, clip.id, 'full_game_hd');
+                const baseDisabled = cart.sessionBundle;
+                const inCart = isClipInCart(cart, clip.id);
 
                 return (
                   <div key={clip.id} className="clip-card">
                     <SessionPreview slug={clip.slug} />
 
                     <div className="clip-meta-row">
-                      <div className="clip-meta-main">
-                        <h3 className="clip-title">
-                          {clip.recorded_at
-                            ? `${formatClipTime(clip.recorded_at)}${durationLabel}`
-                            : clip.title || 'Clip'}
-                        </h3>
-
-                        {clip.recorded_at ? null : (
-                          <p className="clip-subtitle">{clip.title}</p>
-                        )}
+                      <div>
+                        <h3 className="clip-title">{formatClipLabel(clip)}</h3>
+                        {clip.isFullGame ? (
+                          <p style={{ margin: '6px 0 0', color: '#666', fontSize: '0.85rem' }}>
+                            Full game recording
+                          </p>
+                        ) : null}
                       </div>
-
-                      <div className="clip-price">
-                        ${(clip.price_cents / 100).toFixed(2)}
-                      </div>
+                      <div className="clip-price">{formatCents(clip.basePriceCents)}</div>
                     </div>
 
-                    <button
-                      onClick={() => toggleCart(clip.id)}
-                      className={`clip-button ${
-                        isInCart(clip.id) ? 'remove' : 'add'
-                      }`}
-                    >
-                      {isInCart(clip.id) ? 'Remove from Cart' : 'Add to Cart'}
-                    </button>
+                    {!clip.isFullGame ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCart((current) => toggleShortClipInCart(current, clip.id))
+                        }
+                        disabled={cart.sessionBundle}
+                        className={`clip-button ${inCart ? 'remove' : 'add'}`}
+                        style={{
+                          opacity: cart.sessionBundle ? 0.55 : 1,
+                          cursor: cart.sessionBundle ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {cart.sessionBundle
+                          ? 'Included in Session Bundle'
+                          : inCart
+                            ? 'Remove from Cart'
+                            : 'Add to Cart'}
+                      </button>
+                    ) : (
+                      <div className="product-options">
+                        <label
+                          className={`product-option ${baseDisabled ? 'disabled' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={hdSelected}
+                            disabled={baseDisabled}
+                            onChange={(event) =>
+                              setCart((current) =>
+                                toggleFullGameProduct(
+                                  current,
+                                  clip.id,
+                                  'full_game_hd',
+                                  event.target.checked
+                                )
+                              )
+                            }
+                          />
+                          <span>
+                            Purchase HD Video — {formatCents(clip.basePriceCents)}
+                          </span>
+                        </label>
+
+                        {baseDisabled ? (
+                          <div className="bundle-note">HD included in Session Bundle</div>
+                        ) : null}
+
+                        <label
+                          className={`product-option ${!hdSelected ? 'disabled' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={clipHasProduct(cart, clip.id, 'pb_vision')}
+                            disabled={!hdSelected}
+                            onChange={(event) =>
+                              setCart((current) =>
+                                toggleFullGameProduct(
+                                  current,
+                                  clip.id,
+                                  'pb_vision',
+                                  event.target.checked
+                                )
+                              )
+                            }
+                          />
+                          <span>
+                            PB Vision Game Analysis — {formatCents(clip.pbVisionPriceCents)}
+                          </span>
+                        </label>
+
+                        <label
+                          className={`product-option ${
+                            !hdSelected || !COACH_REVIEW_CUSTOMER_ENABLED ? 'disabled' : ''
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              COACH_REVIEW_CUSTOMER_ENABLED &&
+                              clipHasProduct(cart, clip.id, 'coach_review')
+                            }
+                            disabled={!hdSelected || !COACH_REVIEW_CUSTOMER_ENABLED}
+                            onChange={(event) =>
+                              setCart((current) =>
+                                toggleFullGameProduct(
+                                  current,
+                                  clip.id,
+                                  'coach_review',
+                                  event.target.checked
+                                )
+                              )
+                            }
+                          />
+                          <span>
+                            Pro Review — {formatCents(clip.coachReviewPriceCents)}
+                            {!COACH_REVIEW_CUSTOMER_ENABLED ? ' (Coming soon)' : ''}
+                          </span>
+                        </label>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -555,63 +774,159 @@ export default function SessionClipGrid({
 
         <div className="cart-column">
           <div className="cart-card">
-            <h2
-              style={{
-                marginTop: 0,
-                marginBottom: '8px',
-                fontSize: '1.3rem',
-                color: '#16181b',
-                wordBreak: 'break-word',
-              }}
-            >
+            <h2 style={{ marginTop: 0, marginBottom: '8px', fontSize: '1.3rem' }}>
               Cart
-              {cart.length > 0
-                ? ` (${cart.length} clip${cart.length === 1 ? '' : 's'})`
-                : ''}
             </h2>
 
-            {cart.length === 0 ? (
-              <p style={{ marginTop: '12px', color: '#666' }}>
-                Your cart is empty.
-              </p>
+            {bundleQuote.showBundle ? (
+              <div className="bundle-offer">
+                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <input
+                    type="checkbox"
+                    checked={cart.sessionBundle}
+                    onChange={(event) => handleBundleToggle(event.target.checked)}
+                    style={{ marginTop: '4px' }}
+                  />
+                  <span>
+                    <strong>Session Bundle</strong>
+                    <div style={{ fontSize: '0.92rem', color: '#444', marginTop: '4px' }}>
+                      {formatCents(bundleQuote.individualSumCents)} individually →{' '}
+                      {formatCents(bundleQuote.bundlePriceCents)} bundle
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#198754', marginTop: '4px' }}>
+                      Save {formatCents(bundleQuote.savingsCents)} (
+                      {bundleQuote.billedHours} hr × {formatCents(bundleQuote.hourlyRateCents)}
+                      /hr)
+                    </div>
+                  </span>
+                </label>
+              </div>
+            ) : null}
+
+            {!cartHasItems(cart) ? (
+              <p style={{ marginTop: '12px', color: '#666' }}>Your cart is empty.</p>
             ) : (
               <>
                 <ul className="cart-list">
-                  {cart.map((id) => {
-                    const clip = clips.find((c) => c.id === id);
-                    return (
-                      <li key={id} className="cart-list-item">
-                        {clip?.recorded_at
-                          ? formatClipTime(clip.recorded_at)
-                          : clip?.title || 'Clip'}
-                        {clip?.duration_seconds
-                          ? ` | ${formatDuration(clip.duration_seconds)}`
-                          : ''}{' '}
-                        - ${((clip?.price_cents || 0) / 100).toFixed(2)}
-                      </li>
-                    );
-                  })}
+                  {cartLineItems.map((item) => (
+                    <li key={item} className="cart-list-item">
+                      {item}
+                    </li>
+                  ))}
                 </ul>
 
-                <div
-                  style={{
-                    borderTop: '1px solid #e5e5e5',
-                    paddingTop: '14px',
-                    marginTop: '10px',
-                  }}
-                >
-                  <p
-                    style={{
-                      fontWeight: 800,
-                      fontSize: '1.05rem',
-                      margin: '0 0 16px',
-                      color: '#111',
-                    }}
-                  >
-                    Total: ${(total / 100).toFixed(2)}
+                <div style={{ borderTop: '1px solid #e5e5e5', paddingTop: '14px' }}>
+                  <div style={{ marginBottom: '14px' }}>
+                    <label
+                      htmlFor="promo-code"
+                      style={{
+                        display: 'block',
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        marginBottom: '6px',
+                      }}
+                    >
+                      Promo Code
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        id="promo-code"
+                        type="text"
+                        placeholder="Enter code"
+                        value={promoCode}
+                        onChange={(event) => {
+                          setPromoCode(event.target.value);
+                          setPromoMessage(null);
+                          setPromoDiscountCents(0);
+                        }}
+                        disabled={isCheckingOut}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          border: '1px solid #ddd',
+                          borderRadius: '6px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyPromo}
+                        disabled={isCheckingOut || !promoCode.trim()}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #ddd',
+                          background: '#fff',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {promoMessage ? (
+                      <p
+                        style={{
+                          margin: '8px 0 0',
+                          fontSize: '0.85rem',
+                          color: promoDiscountCents > 0 ? '#198754' : '#b00020',
+                        }}
+                      >
+                        {promoMessage}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {!isCartAllFree ? (
+                    <div style={{ marginBottom: '14px' }}>
+                      <label
+                        htmlFor="checkout-email-paid"
+                        style={{
+                          display: 'block',
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          marginBottom: '6px',
+                        }}
+                      >
+                        Email Address (required)
+                      </label>
+                      <input
+                        id="checkout-email-paid"
+                        type="email"
+                        placeholder="your@email.com"
+                        value={checkoutEmail}
+                        onChange={(event) => setCheckoutEmail(event.target.value)}
+                        disabled={isCheckingOut}
+                        required
+                        autoComplete="email"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          border: '1px solid #ddd',
+                          borderRadius: '6px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  ) : null}
+
+                  <p style={{ fontWeight: 800, fontSize: '1.05rem', margin: '0 0 16px' }}>
+                    Total: {formatCents(Math.max(0, totalCents - promoDiscountCents))}
+                    {promoDiscountCents > 0 ? (
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: '0.85rem',
+                          color: '#198754',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Saved {formatCents(promoDiscountCents)}
+                      </span>
+                    ) : null}
                   </p>
 
-                  {checkoutError && (
+                  {checkoutError ? (
                     <div
                       style={{
                         backgroundColor: '#ffebee',
@@ -624,70 +939,60 @@ export default function SessionClipGrid({
                     >
                       {checkoutError}
                     </div>
-                  )}
+                  ) : null}
 
-                  {isCartAllFree && (
-                    <div
-                      style={{
-                        marginBottom: '14px',
-                      }}
-                    >
+                  {isCartAllFree ? (
+                    <div style={{ marginBottom: '14px' }}>
                       <label
+                        htmlFor="checkout-email"
                         style={{
                           display: 'block',
                           fontSize: '0.9rem',
                           fontWeight: 600,
                           marginBottom: '6px',
-                          color: '#333',
                         }}
                       >
-                        Email Address
+                        Email Address (required)
                       </label>
                       <input
+                        id="checkout-email"
                         type="email"
                         placeholder="your@email.com"
                         value={checkoutEmail}
-                        onChange={(e) => setCheckoutEmail(e.target.value)}
+                        onChange={(event) => setCheckoutEmail(event.target.value)}
                         disabled={isCheckingOut}
+                        required
+                        autoComplete="email"
                         style={{
                           width: '100%',
                           padding: '10px',
                           border: '1px solid #ddd',
                           borderRadius: '6px',
-                          fontSize: '0.95rem',
                           boxSizing: 'border-box',
-                          opacity: isCheckingOut ? 0.6 : 1,
-                          cursor: isCheckingOut ? 'not-allowed' : 'auto',
                         }}
                       />
                     </div>
-                  )}
+                  ) : null}
 
-                  <div className="cart-actions">
+                  <div style={{ display: 'grid', gap: '10px' }}>
                     <button
+                      type="button"
                       onClick={handleCheckout}
-                      disabled={isCheckingOut || cart.length === 0}
+                      disabled={isCheckingOut}
                       className="checkout-button"
-                      style={{
-                        opacity: isCheckingOut || cart.length === 0 ? 0.6 : 1,
-                        cursor: isCheckingOut || cart.length === 0 ? 'not-allowed' : 'pointer',
-                      }}
+                      style={{ opacity: isCheckingOut ? 0.6 : 1 }}
                     >
                       {isCheckingOut
                         ? 'Processing...'
                         : isCartAllFree
-                        ? 'Complete Free Checkout'
-                        : 'Checkout'}
+                          ? 'Complete Free Checkout'
+                          : 'Checkout'}
                     </button>
-
                     <button
+                      type="button"
                       onClick={clearCart}
                       disabled={isCheckingOut}
                       className="clear-button"
-                      style={{
-                        opacity: isCheckingOut ? 0.6 : 1,
-                        cursor: isCheckingOut ? 'not-allowed' : 'pointer',
-                      }}
                     >
                       Clear Cart
                     </button>

@@ -16,10 +16,23 @@ export async function createPricingRuleAction(formData: FormData) {
   const clubIdRaw = String(formData.get('club_id') ?? '').trim();
   const courtIdRaw = String(formData.get('court_id') ?? '').trim();
   const pricingMode = String(formData.get('pricing_mode') ?? '').trim();
+  const productType = String(formData.get('product_type') ?? 'clip_download').trim();
   const fixedPriceRaw = String(formData.get('fixed_price_dollars') ?? '').trim();
 
   if (!ruleName) {
     throw new Error('Rule name is required.');
+  }
+
+  if (
+    ![
+      'clip_download',
+      'full_game_hd',
+      'pb_vision',
+      'coach_review',
+      'session_bundle',
+    ].includes(productType)
+  ) {
+    throw new Error('Invalid product type.');
   }
 
   if (!['global', 'club', 'court'].includes(ruleLevel)) {
@@ -70,6 +83,7 @@ export async function createPricingRuleAction(formData: FormData) {
     is_active: true,
     pricing_mode: pricingMode,
     fixed_price_cents: fixedPriceCents,
+    product_type: productType,
   });
 
   if (error) {

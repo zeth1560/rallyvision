@@ -8,6 +8,12 @@ import {
   togglePricingRuleActiveAction,
   deletePricingRuleAction,
 } from './server-actions';
+import { PRODUCT_LABELS } from '@/lib/commerce/cart-payload';
+import {
+  findOverlappingActivePricingRules,
+  formatPricingOverlapTarget,
+} from '@/lib/commerce/pricing-overlap';
+import type { ProductType } from '@/lib/commerce/products';
 
 type PricingRuleRow = {
   id: string;
@@ -20,6 +26,7 @@ type PricingRuleRow = {
   fixed_price_cents: number | null;
   min_price_cents: number | null;
   max_price_cents: number | null;
+  product_type: string | null;
   created_at: string | null;
 };
 
@@ -37,6 +44,26 @@ type CourtRow = {
 function formatPrice(cents: number | null) {
   if (cents == null) return '—';
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatProductType(productType: string | null) {
+  if (!productType) {
+    return PRODUCT_LABELS.clip_download;
+  }
+
+  if (productType in PRODUCT_LABELS) {
+    return PRODUCT_LABELS[productType as ProductType];
+  }
+
+  return productType;
+}
+
+function formatPriceLabel(productType: string | null) {
+  if (productType === 'session_bundle') {
+    return 'Hourly Rate';
+  }
+
+  return 'Fixed Price';
 }
 
 export default async function AdminPricingPage() {
@@ -58,7 +85,7 @@ export default async function AdminPricingPage() {
     supabaseAdmin
       .from('pricing_rules')
       .select(
-        'id, rule_name, rule_level, club_id, court_id, is_active, pricing_mode, fixed_price_cents, min_price_cents, max_price_cents, created_at'
+        'id, rule_name, rule_level, club_id, court_id, is_active, pricing_mode, fixed_price_cents, min_price_cents, max_price_cents, product_type, created_at'
       )
       .order('created_at', { ascending: false }),
     supabaseAdmin.from('clubs').select('id, name').order('name'),
@@ -116,12 +143,75 @@ export default async function AdminPricingPage() {
     );
   }
 
+  const overlapGroups = findOverlappingActivePricingRules(rules);
+
   return (
     <ReplayTrovePageShell
       title="Pricing Rules"
       subtitle="Manage ReplayTrove pricing across global, club, and court levels."
       maxWidth="1400px"
     >
+      {overlapGroups.length > 0 ? (
+        <div
+          style={{
+            border: '1px solid #f0c36d',
+            borderRadius: '16px',
+            padding: '18px 20px',
+            background: '#fff8eb',
+            marginBottom: '24px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.04)',
+          }}
+        >
+          <h2
+            style={{
+              marginTop: 0,
+              marginBottom: '10px',
+              fontSize: '1.05rem',
+              color: '#8a5a00',
+            }}
+          >
+            Overlapping Active Pricing Rules
+          </h2>
+          <p style={{ marginTop: 0, marginBottom: '14px', color: '#6b4f1d' }}>
+            Multiple active rules match the same product and scope. Checkout uses
+            the newest rule silently. Deactivate or delete duplicates to avoid
+            confusion.
+          </p>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {overlapGroups.map((group) => (
+              <div
+                key={group.key}
+                style={{
+                  border: '1px solid #f0d7a4',
+                  borderRadius: '12px',
+                  padding: '14px',
+                  background: '#fffdf8',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#17191c', marginBottom: '6px' }}>
+                  {formatProductType(group.productType)} • {group.ruleLevel} •{' '}
+                  {formatPricingOverlapTarget(
+                    group,
+                    clubNameById,
+                    courtLabelById
+                  )}
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: '#555' }}>
+                  {group.rules.map((rule) => (
+                    <li key={rule.id}>
+                      {rule.rule_name || 'Unnamed Rule'}
+                      {rule.created_at
+                        ? ` (created ${formatDateInTimezone(rule.created_at)})`
+                        : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div
         style={{
           display: 'grid',
@@ -204,6 +294,10 @@ export default async function AdminPricingPage() {
                           }}
                         >
                           <div>
+                            <strong>Product:</strong>{' '}
+                            {formatProductType(rule.product_type)}
+                          </div>
+                          <div>
                             <strong>Level:</strong> {rule.rule_level || '—'}
                           </div>
                           <div>
@@ -213,8 +307,12 @@ export default async function AdminPricingPage() {
                             <strong>Mode:</strong> {rule.pricing_mode || '—'}
                           </div>
                           <div>
-                            <strong>Fixed Price:</strong>{' '}
+                            <strong>{formatPriceLabel(rule.product_type)}:</strong>{' '}
                             {formatPrice(rule.fixed_price_cents)}
+                            {rule.product_type === 'session_bundle' &&
+                            rule.fixed_price_cents != null
+                              ? ' / hr'
+                              : ''}
                           </div>
                           <div>
                             <strong>Status:</strong>{' '}
@@ -338,6 +436,41 @@ export default async function AdminPricingPage() {
                   boxSizing: 'border-box',
                 }}
               />
+            </div>
+
+            <div>
+              <label
+                htmlFor="product_type"
+                style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontWeight: 700,
+                  color: '#17191c',
+                }}
+              >
+                Product Type
+              </label>
+              <select
+                id="product_type"
+                name="product_type"
+                required
+                defaultValue="clip_download"
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid #cfcfcf',
+                  fontSize: '1rem',
+                  boxSizing: 'border-box',
+                  background: '#fff',
+                }}
+              >
+                <option value="clip_download">Clip Download (&lt; 5 min)</option>
+                <option value="full_game_hd">Full Game HD (≥ 5 min)</option>
+                <option value="pb_vision">PB Vision Analysis</option>
+                <option value="coach_review">Coach Review</option>
+                <option value="session_bundle">Session Bundle (hourly rate)</option>
+              </select>
             </div>
 
             <div>
@@ -487,6 +620,9 @@ export default async function AdminPricingPage() {
               >
                 Fixed Price (USD)
               </label>
+              <p style={{ margin: '0 0 8px', color: '#666', fontSize: '0.85rem' }}>
+                For Session Bundle rules, enter the hourly rate (e.g. 9.99 = $9.99/hr).
+              </p>
               <input
                 id="fixed_price_dollars"
                 name="fixed_price_dollars"

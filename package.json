@@ -11,6 +11,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1019.0",
     "@aws-sdk/s3-request-presigner": "^3.1019.0",
+    "@pbvision/partner-sdk": "^0.1.14",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.1",
     "archiver": "^7.0.1",
