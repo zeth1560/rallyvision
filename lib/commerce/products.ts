@@ -1,7 +1,10 @@
 export const FULL_GAME_MIN_DURATION_SECONDS = 300;
 
 /** Customer-facing Coach Review / Pro Review purchase and actions. */
-export const COACH_REVIEW_CUSTOMER_ENABLED = false;
+export const COACH_REVIEW_CUSTOMER_ENABLED = true;
+
+/** Pro Review add-on checkbox on session checkout pages. */
+export const SESSION_COACH_REVIEW_ADDON_ENABLED = false;
 
 /** Customer-facing YouTube upload / view actions. */
 export const YOUTUBE_CUSTOMER_ENABLED = false;

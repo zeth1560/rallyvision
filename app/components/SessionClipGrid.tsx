@@ -21,7 +21,7 @@ import {
   type SessionClipPricingClient,
 } from '@/lib/commerce/cart-payload';
 import {
-  COACH_REVIEW_CUSTOMER_ENABLED,
+  SESSION_COACH_REVIEW_ADDON_ENABLED,
   type ProductType,
 } from '@/lib/commerce/products';
 
@@ -75,7 +75,7 @@ function isValidCheckoutEmail(value: string) {
 }
 
 function stripCoachReviewFromCart(cart: CartPayload): CartPayload {
-  if (COACH_REVIEW_CUSTOMER_ENABLED) {
+  if (SESSION_COACH_REVIEW_ADDON_ENABLED) {
     return cart;
   }
 
@@ -735,34 +735,30 @@ export default function SessionClipGrid({
                           </span>
                         </label>
 
-                        <label
-                          className={`product-option ${
-                            !hdSelected || !COACH_REVIEW_CUSTOMER_ENABLED ? 'disabled' : ''
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              COACH_REVIEW_CUSTOMER_ENABLED &&
-                              clipHasProduct(cart, clip.id, 'coach_review')
-                            }
-                            disabled={!hdSelected || !COACH_REVIEW_CUSTOMER_ENABLED}
-                            onChange={(event) =>
-                              setCart((current) =>
-                                toggleFullGameProduct(
-                                  current,
-                                  clip.id,
-                                  'coach_review',
-                                  event.target.checked
+                        {SESSION_COACH_REVIEW_ADDON_ENABLED ? (
+                          <label
+                            className={`product-option ${!hdSelected ? 'disabled' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={clipHasProduct(cart, clip.id, 'coach_review')}
+                              disabled={!hdSelected}
+                              onChange={(event) =>
+                                setCart((current) =>
+                                  toggleFullGameProduct(
+                                    current,
+                                    clip.id,
+                                    'coach_review',
+                                    event.target.checked
+                                  )
                                 )
-                              )
-                            }
-                          />
-                          <span>
-                            Pro Review — {formatCents(clip.coachReviewPriceCents)}
-                            {!COACH_REVIEW_CUSTOMER_ENABLED ? ' (Coming soon)' : ''}
-                          </span>
-                        </label>
+                              }
+                            />
+                            <span>
+                              Pro Review — {formatCents(clip.coachReviewPriceCents)}
+                            </span>
+                          </label>
+                        ) : null}
                       </div>
                     )}
                   </div>
