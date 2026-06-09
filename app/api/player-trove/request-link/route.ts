@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPlayerTroveAccessEmail } from '@/lib/email';
 import {
+  buildPlayerTroveEmailErrorResponse,
+  getPlayerTroveEmailConfigIssues,
+  logPlayerTroveEmailFailure,
+} from '@/lib/player-trove-email-config';
+import {
   checkPlayerTroveLinkRateLimit,
   getRequestClientIp,
   RATE_LIMIT_MESSAGE,
@@ -39,8 +44,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    await recordPlayerTroveLinkRequest(email, ipAddress);
-
     console.log('[PlayerTrove] Magic link requested', {
       timestamp: new Date().toISOString(),
     });
@@ -62,22 +65,32 @@ export async function POST(request: Request) {
     }
 
     if ((count ?? 0) > 0) {
+      const configIssues = getPlayerTroveEmailConfigIssues();
+      if (configIssues.length > 0) {
+        const configError = new Error(
+          `PlayerTrove email is not configured: ${configIssues.join(', ')}`
+        );
+        logPlayerTroveEmailFailure('config_preflight', configError, { email });
+        return NextResponse.json(buildPlayerTroveEmailErrorResponse(configError), {
+          status: 500,
+        });
+      }
+
       try {
         await sendPlayerTroveAccessEmail(email, { source: 'manual_request' });
+        await recordPlayerTroveLinkRequest(email, ipAddress);
 
         console.log('[PlayerTrove] Magic link email sent', {
           timestamp: new Date().toISOString(),
         });
       } catch (emailError) {
-        console.error('[PlayerTrove] Magic link email failed', {
-          error: emailError instanceof Error ? emailError.message : emailError,
+        logPlayerTroveEmailFailure('resend_send', emailError, { email });
+        return NextResponse.json(buildPlayerTroveEmailErrorResponse(emailError), {
+          status: 500,
         });
-        return NextResponse.json(
-          { error: 'Unable to send email. Please try again later.' },
-          { status: 500 }
-        );
       }
     } else {
+      await recordPlayerTroveLinkRequest(email, ipAddress);
       console.log('[PlayerTrove] Magic link request with no active access (generic response)', {
         timestamp: new Date().toISOString(),
       });

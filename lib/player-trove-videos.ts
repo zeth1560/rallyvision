@@ -113,6 +113,17 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
     }
   >();
 
+  const proReviewByAccessId = new Map<
+    string,
+    {
+      id: string;
+      status: string;
+      reviewer_link: string | null;
+      buyer_position: string | null;
+      identification_frame_s3_key: string | null;
+    }
+  >();
+
   if (accessIds.length > 0) {
     const { data: pbVisionRows } = await supabaseAdmin
       .from('pb_vision_requests')
@@ -127,12 +138,37 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         error_reason: row.error_reason,
       });
     }
+
+    const { data: proReviewRows } = await supabaseAdmin
+      .from('pro_review_requests')
+      .select(
+        'id, player_video_access_id, status, reviewer_link, buyer_position, identification_frame_s3_key'
+      )
+      .in('player_video_access_id', accessIds);
+
+    for (const row of proReviewRows ?? []) {
+      proReviewByAccessId.set(row.player_video_access_id, {
+        id: row.id,
+        status: row.status,
+        reviewer_link: row.reviewer_link,
+        buyer_position: row.buyer_position,
+        identification_frame_s3_key: row.identification_frame_s3_key,
+      });
+    }
   }
 
   const videos = await Promise.all(
     (accessRecords ?? []).map(async (record) => {
       const clipData = normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null);
       const pbVision = pbVisionByAccessId.get(record.id);
+      const proReview = proReviewByAccessId.get(record.id);
+
+      const proReviewFrameUrl = proReview?.identification_frame_s3_key
+        ? await createSignedObjectUrl(
+            proReview.identification_frame_s3_key,
+            getThumbnailContentType(proReview.identification_frame_s3_key)
+          )
+        : null;
 
       const baseProduct = clipData
         ? resolveBaseProductForClip(clipData)
@@ -197,6 +233,13 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         pb_vision_webpage_url: pbVision?.pbv_webpage_url ?? null,
         pb_vision_error_reason: pbVision?.error_reason ?? null,
         coach_review_expires_at: record.coach_review_expires_at,
+        pro_review_request_id: proReview?.id ?? null,
+        pro_review_status: proReview?.status ?? null,
+        pro_review_reviewer_link: proReview?.reviewer_link ?? null,
+        pro_review_buyer_position: proReview?.buyer_position ?? null,
+        pro_review_identification_frame_s3_key:
+          proReview?.identification_frame_s3_key ?? null,
+        pro_review_identification_frame_url: proReviewFrameUrl,
         purchased_at: record.purchased_at,
         upsell_offers: upsellOffers.map((offer) => ({
           product: offer.product,

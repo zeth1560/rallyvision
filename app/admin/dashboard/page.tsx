@@ -258,6 +258,21 @@ export default async function AdminDashboardPage() {
 >
   PB Vision Requests
 </Link>
+<Link
+  href="/admin/pro-review-requests"
+  style={{
+    display: 'inline-block',
+    padding: '12px 18px',
+    borderRadius: '10px',
+    border: '1px solid #d0d0d0',
+    background: '#ffffff',
+    color: '#17191c',
+    textDecoration: 'none',
+    fontWeight: 700,
+  }}
+>
+  Pro Review Requests
+</Link>
         <Link
           href="/admin/clips"
           style={{

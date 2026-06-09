@@ -1,10 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
 import DownloadAllButton from '@/app/components/DownloadAllButton';
 import { formatDuration } from '@/lib/format';
+import {
+  canDownloadHd,
+  formatClaimedDate,
+  formatDownloadExpiry,
+  getClipDateLine,
+  getClipHeading,
+  getClipLocationLine,
+  isFullGameClip,
+  isShortClip,
+  type PlayerTroveApiResponse,
+  type PlayerTroveVideo,
+} from '@/lib/player-trove-display';
 
 type Clip = {
   id: string;
@@ -18,6 +30,10 @@ type Order = {
   clip_id: string;
   clip: Clip | null;
   amount_total?: number | null;
+};
+
+type PlayerTrovePayload = PlayerTroveApiResponse & {
+  token: string;
 };
 
 const CLUB_TIME_ZONE = 'America/Chicago';
@@ -36,6 +52,8 @@ function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
 export default function SuccessPageClient() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [email, setEmail] = useState<string | null>(null);
+  const [playerTrove, setPlayerTrove] = useState<PlayerTrovePayload | null>(null);
+  const [purchasedClipIds, setPurchasedClipIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -74,6 +92,10 @@ export default function SuccessPageClient() {
             setOrders(data.orders);
             setEmail(data.email || null);
             setBookingId(data.bookingId || null);
+            setPurchasedClipIds(
+              Array.isArray(data.purchased_clip_ids) ? data.purchased_clip_ids : []
+            );
+            setPlayerTrove(data.player_trove || null);
 
             // Session total from API (do not sum order rows — each holds the full Stripe total).
             const centsFromApi =
@@ -145,6 +167,35 @@ export default function SuccessPageClient() {
   // Missing amount on a paid-order success session defaults to paid display.
   const isFreeOrder = amountKnown && isPaid === false;
   const totalPaid = totalAmountCents ?? 0;
+
+  const purchasedClipIdSet = useMemo(
+    () => new Set(purchasedClipIds),
+    [purchasedClipIds]
+  );
+
+  const libraryVideos = useMemo(() => {
+    if (!playerTrove?.videos?.length) {
+      return [];
+    }
+
+    return playerTrove.videos.filter(
+      (video) => !purchasedClipIdSet.has(video.clip_id)
+    );
+  }, [playerTrove, purchasedClipIdSet]);
+
+  const shortLibraryClips = useMemo(
+    () => libraryVideos.filter(isShortClip),
+    [libraryVideos]
+  );
+
+  const fullGameLibraryClips = useMemo(
+    () => libraryVideos.filter(isFullGameClip),
+    [libraryVideos]
+  );
+
+  const playerTroveHref = playerTrove?.token
+    ? `/player-trove?token=${encodeURIComponent(playerTrove.token)}`
+    : '/player-trove';
 
   const pageTitle = isFreeOrder ? 'Clips Ready' : 'Payment Successful';
   const pageSubtitle = isFreeOrder
@@ -234,44 +285,163 @@ export default function SuccessPageClient() {
             </div>
           </div>
 
-          <div style={gridStyle}>
-            {orders.map((order) => (
-              <div key={order.clip_id} style={clipCardStyle}>
-                {order.clip?.slug ? (
-                  <SessionPreview slug={order.clip.slug} />
-                ) : (
-                  <div style={previewFallbackStyle}>Preview unavailable</div>
-                )}
+          {orders.length > 0 && (
+            <>
+              <h2 style={sectionHeadingStyle}>Just Purchased</h2>
+              <div style={gridStyle}>
+                {orders.map((order) => (
+                  <div key={order.clip_id} style={clipCardStyle}>
+                    {order.clip?.slug ? (
+                      <SessionPreview slug={order.clip.slug} />
+                    ) : (
+                      <div style={previewFallbackStyle}>Preview unavailable</div>
+                    )}
 
-                <h3 style={titleStyle}>
-                  {order.clip?.recorded_at
-                    ? formatClipTime(order.clip.recorded_at)
-                    : order.clip?.title || 'Clip'}
-                  {order.clip?.duration_seconds
-                    ? ` | ${formatDuration(order.clip.duration_seconds)}`
-                    : ''}
-                </h3>
+                    <h3 style={titleStyle}>
+                      {order.clip?.recorded_at
+                        ? formatClipTime(order.clip.recorded_at)
+                        : order.clip?.title || 'Clip'}
+                      {order.clip?.duration_seconds
+                        ? ` | ${formatDuration(order.clip.duration_seconds)}`
+                        : ''}
+                    </h3>
 
-                <button
-                  disabled={downloadingClip === order.clip_id}
-                  onClick={() => handleClipDownload(order.clip_id)}
-                  style={{
-                    ...downloadButton,
-                    opacity: downloadingClip === order.clip_id ? 0.6 : 1,
-                    cursor:
-                      downloadingClip === order.clip_id ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {downloadingClip === order.clip_id
-                    ? 'Preparing...'
-                    : 'Download Clip'}
-                </button>
+                    <button
+                      disabled={downloadingClip === order.clip_id}
+                      onClick={() => handleClipDownload(order.clip_id)}
+                      style={{
+                        ...downloadButton,
+                        opacity: downloadingClip === order.clip_id ? 0.6 : 1,
+                        cursor:
+                          downloadingClip === order.clip_id
+                            ? 'not-allowed'
+                            : 'pointer',
+                      }}
+                    >
+                      {downloadingClip === order.clip_id
+                        ? 'Preparing...'
+                        : 'Download Clip'}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
+
+          {libraryVideos.length > 0 && (
+            <div style={libraryIntroStyle}>
+              <h2 style={{ ...sectionHeadingStyle, marginBottom: '8px' }}>
+                Your PlayerTrove
+              </h2>
+              <p style={{ margin: 0, color: '#555', fontSize: '0.95rem' }}>
+                {libraryVideos.length} earlier clip
+                {libraryVideos.length !== 1 ? 's' : ''} from your library
+              </p>
+              <a href={playerTroveHref} style={playerTroveLinkStyle}>
+                Open full PlayerTrove
+              </a>
+            </div>
+          )}
+
+          {shortLibraryClips.length > 0 && (
+            <>
+              <h3 style={subsectionHeadingStyle}>
+                Short Clips ({shortLibraryClips.length})
+              </h3>
+              <div style={gridStyle}>
+                {shortLibraryClips.map((video) => (
+                  <LibraryVideoCard
+                    key={video.access_id}
+                    video={video}
+                    token={playerTrove?.token}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {fullGameLibraryClips.length > 0 && (
+            <>
+              <h3 style={subsectionHeadingStyle}>
+                Full Game Recordings ({fullGameLibraryClips.length})
+              </h3>
+              <div style={gridStyle}>
+                {fullGameLibraryClips.map((video) => (
+                  <LibraryVideoCard
+                    key={video.access_id}
+                    video={video}
+                    token={playerTrove?.token}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </ReplayTrovePageShell>
+  );
+}
+
+function LibraryVideoCard({
+  video,
+  token,
+}: {
+  video: PlayerTroveVideo;
+  token?: string;
+}) {
+  const now = new Date();
+  const heading = getClipHeading(video);
+  const locationLine = getClipLocationLine(video);
+  const dateLine = getClipDateLine(video);
+  const claimedDate = formatClaimedDate(video.purchased_at);
+  const downloadExpiry = formatDownloadExpiry(video.download_expires_at);
+  const downloadAllowed = canDownloadHd(video, now);
+  const downloadParams = new URLSearchParams({
+    access_id: video.access_id,
+    redirect: '1',
+  });
+
+  if (token) {
+    downloadParams.set('token', token);
+  }
+
+  const downloadHref = `/api/player-trove/download?${downloadParams.toString()}`;
+
+  return (
+    <div style={clipCardStyle}>
+      {video.thumbnail_url ? (
+        <img
+          src={video.thumbnail_url}
+          alt={heading}
+          style={thumbnailStyle}
+        />
+      ) : video.clip_slug ? (
+        <SessionPreview slug={video.clip_slug} />
+      ) : (
+        <div style={previewFallbackStyle}>Preview unavailable</div>
+      )}
+
+      <h3 style={titleStyle}>{heading}</h3>
+
+      {locationLine && <p style={metaLineStyle}>{locationLine}</p>}
+      {dateLine && <p style={metaLineStyle}>{dateLine}</p>}
+      {claimedDate && (
+        <p style={metaLineStyle}>Claimed {claimedDate}</p>
+      )}
+      {downloadExpiry && (
+        <p style={metaLineStyle}>Download available until {downloadExpiry}</p>
+      )}
+
+      {downloadAllowed ? (
+        <a href={downloadHref} style={downloadLinkStyle}>
+          Download HD
+        </a>
+      ) : (
+        <p style={{ margin: 0, color: '#777', fontSize: '0.9rem' }}>
+          Download unavailable
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -311,6 +481,64 @@ const gridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
   gap: '18px',
+  marginBottom: '28px',
+};
+
+const sectionHeadingStyle = {
+  margin: '0 0 16px',
+  fontSize: '1.35rem',
+  color: '#17191c',
+};
+
+const subsectionHeadingStyle = {
+  margin: '8px 0 16px',
+  fontSize: '1.1rem',
+  color: '#333',
+};
+
+const libraryIntroStyle = {
+  marginTop: '8px',
+  marginBottom: '24px',
+  paddingTop: '8px',
+  borderTop: '1px solid #ececec',
+};
+
+const playerTroveLinkStyle = {
+  display: 'inline-block',
+  marginTop: '12px',
+  color: '#111',
+  fontWeight: 600,
+  fontSize: '0.95rem',
+};
+
+const metaLineStyle = {
+  margin: '0 0 6px',
+  color: '#555',
+  fontSize: '0.9rem',
+};
+
+const thumbnailStyle = {
+  width: '100%',
+  aspectRatio: '16 / 9',
+  objectFit: 'cover' as const,
+  borderRadius: '6px',
+  marginBottom: '1rem',
+  background: '#eee',
+};
+
+const downloadLinkStyle = {
+  display: 'block',
+  width: '100%',
+  padding: '0.85rem',
+  background: 'linear-gradient(135deg, #111315 0%, #25282d 100%)',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '10px',
+  fontWeight: 700,
+  fontSize: '0.96rem',
+  textAlign: 'center' as const,
+  textDecoration: 'none',
+  boxSizing: 'border-box' as const,
 };
 
 const titleStyle = {

@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 
-export default function PlayerTroveRequestPage() {
+function PlayerTroveRequestForm() {
+  const searchParams = useSearchParams();
+  const expiredLink = searchParams.get('error') === 'expired';
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +29,13 @@ export default function PlayerTroveRequestPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Something went wrong. Please try again.');
+        const baseMessage =
+          data.error || 'Something went wrong. Please try again.';
+        const debugMessage =
+          typeof data.debug === 'string' && data.debug.trim()
+            ? `${baseMessage}\n\n${data.debug}`
+            : baseMessage;
+        setError(debugMessage);
         return;
       }
 
@@ -57,6 +66,24 @@ export default function PlayerTroveRequestPage() {
           boxShadow: '0 8px 24px rgba(0,0,0,0.07)',
         }}
       >
+        {expiredLink ? (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '12px 14px',
+              borderRadius: '10px',
+              background: '#fff8eb',
+              border: '1px solid #f0d7a4',
+              color: '#8a5a00',
+              fontSize: '0.95rem',
+              lineHeight: 1.5,
+            }}
+            role="status"
+          >
+            That PlayerTrove link has expired. Request a new one below.
+          </div>
+        ) : null}
+
         <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
           <div>
             <label
@@ -100,6 +127,7 @@ export default function PlayerTroveRequestPage() {
                 border: '1px solid #f1c5c5',
                 color: '#a12626',
                 fontSize: '0.95rem',
+                whiteSpace: 'pre-wrap',
               }}
               role="alert"
             >
@@ -179,5 +207,13 @@ export default function PlayerTroveRequestPage() {
         </p>
       </div>
     </ReplayTrovePageShell>
+  );
+}
+
+export default function PlayerTroveRequestPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>}>
+      <PlayerTroveRequestForm />
+    </Suspense>
   );
 }

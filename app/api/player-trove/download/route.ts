@@ -6,7 +6,7 @@ import {
   markAccessDownloaded,
   resolveHdDownloadByAccessId,
 } from '@/lib/hd-download';
-import { resolvePlayerTroveViewerEmail } from '@/lib/player-trove-auth';
+import { resolvePlayerTroveViewerEmail, PLAYER_TROVE_TOKEN_COOKIE } from '@/lib/player-trove-auth';
 
 const ROUTE = '/api/player-trove/download';
 
@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid access_id' }, { status: 400 });
     }
 
-    const auth = resolvePlayerTroveViewerEmail(searchParams);
+    const cookieToken = request.cookies.get(PLAYER_TROVE_TOKEN_COOKIE)?.value;
+    const auth = resolvePlayerTroveViewerEmail(searchParams, cookieToken);
 
     if (!auth.ok) {
       logHdDownload(ROUTE, {
@@ -76,6 +77,11 @@ export async function GET(request: NextRequest) {
     });
 
     await markAccessDownloaded(download.accessId);
+
+    const redirect = searchParams.get('redirect') === '1';
+    if (redirect) {
+      return NextResponse.redirect(signedUrl);
+    }
 
     return NextResponse.json({ url: signedUrl });
   } catch (error) {

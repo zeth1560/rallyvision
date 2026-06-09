@@ -26,7 +26,10 @@ $keys = @(
     'NEXT_PUBLIC_BASE_URL',
     'RESEND_API_KEY',
     'EMAIL_FROM',
-    'PLAYERTROVE_TOKEN_SECRET'
+    'PLAYERTROVE_TOKEN_SECRET',
+    'PBVISION_API_KEY',
+    'PBVISION_WEBHOOK_URL',
+    'PBVISION_USE_PROD_SERVER'
 )
 foreach ($name in $keys) {
     if ($map.ContainsKey($name) -and $map[$name]) {

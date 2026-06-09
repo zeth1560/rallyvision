@@ -1,5 +1,9 @@
 import { Resend } from 'resend';
 import { createPlayerTroveToken } from '@/lib/player-trove-token';
+import {
+  describePlayerTroveEmailConfigIssues,
+  getPlayerTroveEmailConfigIssues,
+} from '@/lib/player-trove-email-config';
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -34,10 +38,46 @@ function getEmailBaseUrl() {
   ).replace(/\/$/, '');
 }
 
+function getEmailLogoUrl() {
+  const override = process.env.EMAIL_LOGO_URL?.trim();
+  if (override) {
+    return override;
+  }
+
+  return `${getEmailBaseUrl()}/logo.png`;
+}
+
+function emailHeaderHtml() {
+  const baseUrl = getEmailBaseUrl();
+  const logoUrl = getEmailLogoUrl();
+
+  return `
+    <div style="text-align: center; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid #ececec;">
+      <a href="${baseUrl}" style="text-decoration: none;">
+        <img
+          src="${logoUrl}"
+          alt="ReplayTrove"
+          width="420"
+          style="display: block; max-width: 420px; width: 100%; height: auto; margin: 0 auto; border: 0;"
+        />
+      </a>
+    </div>
+  `;
+}
+
+function wrapEmailBody(content: string) {
+  return `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #17191c;">
+      ${emailHeaderHtml()}
+      ${content}
+    </div>
+  `;
+}
+
 /** Build PlayerTrove magic link for emails. Never log the return value. */
 function buildPlayerTroveMagicLinkUrl(email: string) {
   const token = createPlayerTroveToken(email);
-  return `${getEmailBaseUrl()}/player-trove?token=${encodeURIComponent(token)}`;
+  return `${getEmailBaseUrl()}/api/player-trove/open?token=${encodeURIComponent(token)}`;
 }
 
 function playerTroveAccessSectionHtml(magicLinkUrl: string) {
@@ -81,9 +121,8 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
 
       return {
         subject: 'Your ReplayTrove clips are ready',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h1>Your ReplayTrove purchase is complete</h1>
+        html: wrapEmailBody(`
+            <h1 style="margin-top: 0;">Your ReplayTrove purchase is complete</h1>
             <p>Thanks for your purchase. Your clips are ready.</p>
 
             <p>
@@ -99,8 +138,7 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
             <p>
               Keep this email handy in case you want to come back later and download your clips again.
             </p>
-          </div>
-        `,
+        `),
       };
     }
 
@@ -110,9 +148,8 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
 
       return {
         subject: 'Your ReplayTrove clips are ready',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h1>Your free ReplayTrove clips are ready</h1>
+        html: wrapEmailBody(`
+            <h1 style="margin-top: 0;">Your free ReplayTrove clips are ready</h1>
             <p>
               Thanks for completing free checkout during the ReplayTrove free pilot.
               ${clipLabel} ${options.clipCount === 1 ? 'is' : 'are'} now available in your PlayerTrove.
@@ -123,17 +160,15 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
             <p>
               Keep this email handy in case you want to come back later and download your clips again.
             </p>
-          </div>
-        `,
+        `),
       };
     }
 
     case 'free_claim':
       return {
         subject: 'Your ReplayTrove clip is ready',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h1>Your free ReplayTrove clip is ready</h1>
+        html: wrapEmailBody(`
+            <h1 style="margin-top: 0;">Your free ReplayTrove clip is ready</h1>
             <p>
               Thanks for claiming free access during the ReplayTrove free pilot.
               Your clip is now available in your PlayerTrove.
@@ -144,16 +179,14 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
             <p>
               Keep this email handy in case you want to come back later and download your clip again.
             </p>
-          </div>
-        `,
+        `),
       };
 
     case 'manual_request':
       return {
         subject: 'Your PlayerTrove access link',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h1>Access your PlayerTrove</h1>
+        html: wrapEmailBody(`
+            <h1 style="margin-top: 0;">Access your PlayerTrove</h1>
             <p>Use the link below to view and download your ReplayTrove videos.</p>
 
             ${troveSection}
@@ -161,8 +194,7 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
             <p style="color: #666; font-size: 14px;">
               If you did not request this email, you can safely ignore it.
             </p>
-          </div>
-        `,
+        `),
       };
   }
 }
@@ -171,6 +203,11 @@ export async function sendPlayerTroveAccessEmail(
   to: string,
   options: PlayerTroveAccessEmailOptions
 ) {
+  const configIssues = getPlayerTroveEmailConfigIssues();
+  if (configIssues.length > 0) {
+    throw new Error(describePlayerTroveEmailConfigIssues(configIssues));
+  }
+
   const { subject, html } = buildEmailHtml(to, options);
 
   const { data, error } = await resend.emails.send({

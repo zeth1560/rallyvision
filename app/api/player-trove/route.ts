@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
-import { resolvePlayerTroveViewerEmail } from '@/lib/player-trove-auth';
+import {
+  PLAYER_TROVE_TOKEN_COOKIE,
+  resolvePlayerTroveViewerEmail,
+} from '@/lib/player-trove-auth';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const auth = resolvePlayerTroveViewerEmail(searchParams);
+  const cookieToken = request.cookies.get(PLAYER_TROVE_TOKEN_COOKIE)?.value;
+  const auth = resolvePlayerTroveViewerEmail(searchParams, cookieToken);
 
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

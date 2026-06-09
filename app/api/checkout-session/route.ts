@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
+import { createPlayerTroveToken } from '@/lib/player-trove-token';
 
 export async function GET(request: Request) {
   try {
@@ -70,10 +72,30 @@ export async function GET(request: Request) {
       });
     }
 
+    const email = orders[0]?.email?.toLowerCase().trim() || null;
+    let playerTrove = null;
+
+    if (email) {
+      try {
+        const troveData = await fetchPlayerTroveVideosForEmail(email);
+        playerTrove = {
+          ...troveData,
+          token: createPlayerTroveToken(email),
+        };
+      } catch (troveError) {
+        console.error('[checkout-session] Failed to load PlayerTrove library', {
+          session_id: sessionId,
+          error: troveError instanceof Error ? troveError.message : troveError,
+        });
+      }
+    }
+
     return NextResponse.json({
       orders: enrichedOrders,
-      email: orders[0]?.email || null,
+      email,
       bookingId,
+      purchased_clip_ids: clipIds,
+      player_trove: playerTrove,
       total_amount_cents: amountKnown ? sessionAmountTotal : null,
       amount_known: amountKnown,
       is_paid: isPaid,

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UUID_REGEX } from '@/lib/hd-download';
-import { submitPlayerTrovePbVisionRequest } from '@/lib/pb-vision-request';
-import { resolveHdDownloadByAccessId } from '@/lib/hd-download';
+import { startPlayerTroveProReviewRequest } from '@/lib/pro-review-request';
 import {
   readPlayerTroveTokenFromRequest,
   verifyPlayerTroveRequestToken,
@@ -11,23 +10,20 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const accessId = body?.access_id?.trim();
-    const notes = typeof body?.notes === 'string' ? body.notes : undefined;
 
     if (!accessId || !UUID_REGEX.test(accessId)) {
       return NextResponse.json({ error: 'Invalid access_id' }, { status: 400 });
     }
 
     const token = readPlayerTroveTokenFromRequest(request, body?.token);
-
     const verified = verifyPlayerTroveRequestToken(token);
     if (!verified.ok) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }
 
-    const result = await submitPlayerTrovePbVisionRequest({
+    const result = await startPlayerTroveProReviewRequest({
       accessId,
       viewerEmail: verified.email,
-      notes,
     });
 
     if (!result.ok) {
@@ -37,13 +33,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       request_id: result.request_id,
       status: result.status,
-      pbv_vid: result.pbv_vid,
-      pbv_webpage_url: result.pbv_webpage_url,
+      identification_frame_url: result.identification_frame_url,
+      identification_frame_s3_key: result.identification_frame_s3_key,
+      identification_frame_timestamp_seconds:
+        result.identification_frame_timestamp_seconds,
+      frame_id: result.frame_id,
     });
   } catch (error) {
-    console.error('[PB Vision Request] Route error:', error);
+    console.error('[Pro Review Start] Route error:', error);
     return NextResponse.json(
-      { error: 'Failed to submit PB Vision request' },
+      { error: 'Failed to start Pro Review request' },
       { status: 500 }
     );
   }
