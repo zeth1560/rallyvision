@@ -16,6 +16,7 @@ export type StoredCheckoutCartPayload = {
   promoCodeId?: string | null;
   promoCode?: string | null;
   customerEmail?: string | null;
+  playerTroveAccessId?: string | null;
 };
 
 export type ResolvedCheckoutCart = StoredCheckoutCartPayload & {
@@ -55,6 +56,10 @@ function parseStoredPayload(raw: unknown): StoredCheckoutCartPayload | null {
     promoCode: typeof record.promoCode === 'string' ? record.promoCode : null,
     customerEmail:
       typeof record.customerEmail === 'string' ? record.customerEmail : null,
+    playerTroveAccessId:
+      typeof record.playerTroveAccessId === 'string'
+        ? record.playerTroveAccessId
+        : null,
   };
 }
 

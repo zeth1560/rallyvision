@@ -65,6 +65,10 @@ export async function fulfillStripeCheckoutSession({
     session.metadata ?? undefined
   );
   const parsed = resolvedCart.parsed;
+  const playerTroveAccessId =
+    resolvedCart.playerTroveAccessId?.trim() ||
+    session.metadata?.playerTroveAccessId?.trim() ||
+    null;
   const normalizedEmail =
     normalizeCheckoutEmail(resolvedCart.customerEmail) ?? stripeEmail;
 
@@ -390,6 +394,24 @@ export async function fulfillStripeCheckoutSession({
       .maybeSingle();
 
     let existingAccess = existingAccessBySession;
+
+    if (
+      !existingAccess &&
+      playerTroveAccessId &&
+      orderClipIds.length === 1 &&
+      clipId === orderClipIds[0]
+    ) {
+      const { data: targetedAccess } = await supabaseAdmin
+        .from('player_video_access')
+        .select('id')
+        .eq('id', playerTroveAccessId)
+        .eq('email', normalizedEmail)
+        .eq('clip_id', clipId)
+        .eq('access_status', 'active')
+        .maybeSingle();
+
+      existingAccess = targetedAccess;
+    }
 
     if (!existingAccess) {
       const { data: existingActiveAccess } = await supabaseAdmin

@@ -5,7 +5,7 @@ import {
   BUYER_POSITIONS,
   type BuyerPosition,
   type PlayerNames,
-} from '@/lib/pro-review-request';
+} from '@/lib/pro-review-types';
 
 type VideoContext = {
   access_id: string;

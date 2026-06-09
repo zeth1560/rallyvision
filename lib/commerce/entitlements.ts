@@ -24,6 +24,32 @@ function isExpiryActive(expiresAt: string | null | undefined) {
   return new Date() <= new Date(expiresAt);
 }
 
+function resolveEntitlementExpiry(
+  purchasedAt: string | null | undefined,
+  expiresAt: string | null | undefined
+) {
+  if (expiresAt) {
+    return expiresAt;
+  }
+
+  if (!purchasedAt) {
+    return null;
+  }
+
+  return computeAccessWindowExpiry(new Date(purchasedAt)).toISOString();
+}
+
+function hasActiveEntitlement(
+  purchasedAt: string | null | undefined,
+  expiresAt: string | null | undefined
+) {
+  if (!purchasedAt) {
+    return false;
+  }
+
+  return isExpiryActive(resolveEntitlementExpiry(purchasedAt, expiresAt));
+}
+
 export function hasClipDownloadAccess(access: AccessEntitlementRow) {
   if (!access.clip_download_purchased_at) {
     return false;
@@ -88,19 +114,45 @@ export function getVideoBaseAccessDenialReason(
 }
 
 export function hasPbVisionPurchaseAccess(access: AccessEntitlementRow) {
-  if (!access.pb_vision_purchased_at) {
-    return false;
-  }
-
-  return isExpiryActive(access.pb_vision_expires_at);
+  return hasActiveEntitlement(
+    access.pb_vision_purchased_at,
+    access.pb_vision_expires_at
+  );
 }
 
 export function hasCoachReviewPurchaseAccess(access: AccessEntitlementRow) {
-  if (!access.coach_review_purchased_at) {
+  return hasActiveEntitlement(
+    access.coach_review_purchased_at,
+    access.coach_review_expires_at
+  );
+}
+
+export type PbVisionRequestPurchaseHint = {
+  status: string;
+  refund_status: string | null;
+};
+
+export function hasPbVisionPurchaseViaRequest(
+  request: PbVisionRequestPurchaseHint | null | undefined
+) {
+  if (!request) {
     return false;
   }
 
-  return isExpiryActive(access.coach_review_expires_at);
+  if (
+    request.refund_status === 'completed' ||
+    request.refund_status === 'skipped_free'
+  ) {
+    return false;
+  }
+
+  return (
+    request.status === 'requested' ||
+    request.status === 'submitted' ||
+    request.status === 'processing' ||
+    request.status === 'completed' ||
+    request.status === 'failed'
+  );
 }
 
 export function computeAccessWindowExpiry(from: Date = new Date()) {

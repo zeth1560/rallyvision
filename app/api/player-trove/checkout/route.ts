@@ -166,6 +166,7 @@ export async function POST(request: NextRequest) {
       {
         promoCode,
         customerEmail: viewerEmail,
+        playerTroveAccessId: accessId,
       }
     );
 

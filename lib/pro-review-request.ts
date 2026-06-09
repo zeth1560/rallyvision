@@ -1,17 +1,13 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createSignedObjectUrl } from '@/lib/s3';
 import { hasCoachReviewPurchaseAccess } from '@/lib/commerce/entitlements';
+import {
+  BUYER_POSITIONS,
+  type BuyerPosition,
+  type PlayerNames,
+} from '@/lib/pro-review-types';
 
-export const BUYER_POSITIONS = [
-  'top_left',
-  'top_right',
-  'bottom_left',
-  'bottom_right',
-] as const;
-
-export type BuyerPosition = (typeof BUYER_POSITIONS)[number];
-
-export type PlayerNames = Partial<Record<BuyerPosition, string>>;
+export { BUYER_POSITIONS, type BuyerPosition, type PlayerNames };
 
 export type ProReviewRequestResult =
   | {

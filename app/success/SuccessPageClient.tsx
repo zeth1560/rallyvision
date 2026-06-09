@@ -1,7 +1,7 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
+import ProReviewRequestModal from '@/app/player-trove/ProReviewRequestModal';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
 import DownloadAllButton from '@/app/components/DownloadAllButton';
@@ -36,11 +36,6 @@ import {
   type PlayerTroveApiResponse,
   type PlayerTroveVideo,
 } from '@/lib/player-trove-display';
-
-const ProReviewRequestModal = dynamic(
-  () => import('@/app/player-trove/ProReviewRequestModal'),
-  { ssr: false }
-);
 
 type Clip = {
   id: string;

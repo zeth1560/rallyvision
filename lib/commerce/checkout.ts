@@ -45,6 +45,7 @@ export type ParsedCheckoutRequest =
 export type CheckoutBuildOptions = {
   promoCode?: string | null;
   customerEmail?: string | null;
+  playerTroveAccessId?: string | null;
 };
 
 export function parseCheckoutRequestBody(body: unknown): ParsedCheckoutRequest | null {
@@ -421,13 +422,20 @@ export async function buildStripeCheckoutFromRequest(
     promoCodeId: appliedPromoCodeId,
     promoCode: appliedPromoCode,
     customerEmail,
+    playerTroveAccessId: options.playerTroveAccessId ?? null,
   });
+
+  const metadata: Record<string, string> = {
+    checkoutCartId,
+  };
+
+  if (options.playerTroveAccessId) {
+    metadata.playerTroveAccessId = options.playerTroveAccessId;
+  }
 
   return {
     lineItems,
-    metadata: {
-      checkoutCartId,
-    },
+    metadata,
     checkoutCartId,
     normalized,
     priceLines: finalPriceLines,

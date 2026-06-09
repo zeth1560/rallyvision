@@ -118,5 +118,33 @@ assert(
   )[0].status === 'available'
 );
 
+assert(
+  'pb vision purchased_at without expires_at is treated as purchased',
+  resolveUpsellOffers(
+    {
+      ...hdPurchased,
+      pb_vision_purchased_at: futureExpiry,
+      pb_vision_expires_at: null,
+    },
+    fullGameClip,
+    pricing
+  ).find((offer) => offer.product === 'pb_vision')?.status === 'purchased'
+);
+
+assert(
+  'active pb vision request implies purchased when entitlement fields are stale',
+  resolveUpsellOffers(
+    hdPurchased,
+    fullGameClip,
+    pricing,
+    {
+      pbVisionRequest: {
+        status: 'processing',
+        refund_status: null,
+      },
+    }
+  ).find((offer) => offer.product === 'pb_vision')?.status === 'purchased'
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -33,6 +33,152 @@ function normalizeClipRelation(
   return Array.isArray(clips) ? clips[0] ?? null : clips;
 }
 
+type PlayerVideoAccessRow = {
+  id: string;
+  clip_id: string;
+  purchased_at: string;
+  clip_download_purchased_at: string | null;
+  hd_download_purchased_at: string | null;
+  pb_vision_purchased_at: string | null;
+  coach_review_purchased_at: string | null;
+  download_expires_at: string | null;
+  pb_vision_expires_at: string | null;
+  coach_review_expires_at: string | null;
+  thumbnail_s3_key: string | null;
+  youtube_url: string | null;
+  youtube_status: string;
+  clips: ClipRow | ClipRow[] | null;
+};
+
+type CanonicalAccessRecord = PlayerVideoAccessRow & {
+  groupAccessIds: string[];
+};
+
+function mergeEntitlementFields(
+  target: PlayerVideoAccessRow,
+  source: PlayerVideoAccessRow,
+  purchasedField: keyof Pick<
+    PlayerVideoAccessRow,
+    | 'clip_download_purchased_at'
+    | 'hd_download_purchased_at'
+    | 'pb_vision_purchased_at'
+    | 'coach_review_purchased_at'
+  >,
+  expiresField: keyof Pick<
+    PlayerVideoAccessRow,
+    'download_expires_at' | 'pb_vision_expires_at' | 'coach_review_expires_at'
+  >
+) {
+  const sourcePurchased = source[purchasedField];
+  const targetPurchased = target[purchasedField];
+
+  if (!sourcePurchased) {
+    return;
+  }
+
+  if (
+    !targetPurchased ||
+    new Date(sourcePurchased).getTime() > new Date(targetPurchased).getTime()
+  ) {
+    target[purchasedField] = sourcePurchased;
+    target[expiresField] = source[expiresField];
+  }
+}
+
+function canonicalizeAccessRecords(
+  records: PlayerVideoAccessRow[]
+): CanonicalAccessRecord[] {
+  const grouped = new Map<string, PlayerVideoAccessRow[]>();
+
+  for (const record of records) {
+    const group = grouped.get(record.clip_id) ?? [];
+    group.push(record);
+    grouped.set(record.clip_id, group);
+  }
+
+  const canonical: CanonicalAccessRecord[] = [];
+
+  for (const group of grouped.values()) {
+    const sorted = [...group].sort(
+      (a, b) =>
+        new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime()
+    );
+
+    if (sorted.length === 1) {
+      canonical.push({
+        ...sorted[0],
+        groupAccessIds: [sorted[0].id],
+      });
+      continue;
+    }
+
+    const merged: PlayerVideoAccessRow = { ...sorted[0] };
+
+    for (const record of sorted.slice(1)) {
+      mergeEntitlementFields(
+        merged,
+        record,
+        'hd_download_purchased_at',
+        'download_expires_at'
+      );
+      mergeEntitlementFields(
+        merged,
+        record,
+        'clip_download_purchased_at',
+        'download_expires_at'
+      );
+      mergeEntitlementFields(
+        merged,
+        record,
+        'pb_vision_purchased_at',
+        'pb_vision_expires_at'
+      );
+      mergeEntitlementFields(
+        merged,
+        record,
+        'coach_review_purchased_at',
+        'coach_review_expires_at'
+      );
+    }
+
+    const primaryId =
+      sorted.find((record) => record.pb_vision_purchased_at)?.id ??
+      sorted.find((record) => record.coach_review_purchased_at)?.id ??
+      sorted.find(
+        (record) => record.hd_download_purchased_at || record.clip_download_purchased_at
+      )?.id ??
+      sorted[0].id;
+
+    const primaryRecord = sorted.find((record) => record.id === primaryId) ?? sorted[0];
+
+    canonical.push({
+      ...primaryRecord,
+      ...merged,
+      id: primaryId,
+      groupAccessIds: sorted.map((record) => record.id),
+    });
+  }
+
+  return canonical.sort(
+    (a, b) =>
+      new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime()
+  );
+}
+
+function findLinkedRowForAccessIds<T>(
+  accessIds: string[],
+  rowsByAccessId: Map<string, T>
+): T | null {
+  for (const accessId of accessIds) {
+    const row = rowsByAccessId.get(accessId);
+    if (row) {
+      return row;
+    }
+  }
+
+  return null;
+}
+
 async function fetchNameMap(table: 'clubs' | 'courts', ids: string[]) {
   if (ids.length === 0) {
     return new Map<string, string>();
@@ -90,7 +236,11 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
     throw error;
   }
 
-  const clipRows = (accessRecords ?? [])
+  const canonicalAccessRecords = canonicalizeAccessRecords(
+    (accessRecords ?? []) as PlayerVideoAccessRow[]
+  );
+
+  const clipRows = canonicalAccessRecords
     .map((record) => normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null))
     .filter(Boolean) as ClipRow[];
 
@@ -102,7 +252,7 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
     fetchNameMap('courts', courtIds),
   ]);
 
-  const accessIds = (accessRecords ?? []).map((record) => record.id);
+  const accessIds = canonicalAccessRecords.flatMap((record) => record.groupAccessIds);
   const pbVisionByAccessId = new Map<
     string,
     {
@@ -164,10 +314,16 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
   }
 
   const videos = await Promise.all(
-    (accessRecords ?? []).map(async (record) => {
+    canonicalAccessRecords.map(async (record) => {
       const clipData = normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null);
-      const pbVision = pbVisionByAccessId.get(record.id);
-      const proReview = proReviewByAccessId.get(record.id);
+      const pbVision = findLinkedRowForAccessIds(
+        record.groupAccessIds,
+        pbVisionByAccessId
+      );
+      const proReview = findLinkedRowForAccessIds(
+        record.groupAccessIds,
+        proReviewByAccessId
+      );
 
       const proReviewFrameUrl = proReview?.identification_frame_s3_key
         ? await createSignedObjectUrl(
@@ -210,6 +366,13 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
             basePriceCents: basePrice.priceCents,
             pbVisionPriceCents: pbVisionPrice.priceCents,
             coachReviewPriceCents: coachReviewPrice.priceCents,
+          }, {
+            pbVisionRequest: pbVision
+              ? {
+                  status: pbVision.status,
+                  refund_status: pbVision.refund_status,
+                }
+              : null,
           })
         : [];
 

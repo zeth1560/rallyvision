@@ -186,6 +186,10 @@ export function canDownloadHd(video: PlayerTroveVideo, now: Date) {
 }
 
 export function isPbVisionExpired(video: PlayerTroveVideo, now: Date) {
+  if (hasPurchasedPbVision(video) && !video.pb_vision_expires_at) {
+    return false;
+  }
+
   return !video.pb_vision_expires_at || new Date(video.pb_vision_expires_at) < now;
 }
 
