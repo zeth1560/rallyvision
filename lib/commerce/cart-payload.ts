@@ -281,6 +281,6 @@ export const PRODUCT_LABELS: Record<ProductType, string> = {
   clip_download: 'Clip Download',
   full_game_hd: 'HD Video',
   pb_vision: 'PB Vision Analysis',
-  coach_review: 'Coach Review',
+  coach_review: 'Pro Review',
   session_bundle: 'Session Bundle',
 };

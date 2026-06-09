@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
 import PlayerTroveContent from '@/app/player-trove/PlayerTroveContent';
-import PlayerTroveServerView from '@/app/player-trove/PlayerTroveServerView';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
 import {
   PLAYER_TROVE_TOKEN_COOKIE,
@@ -44,16 +43,6 @@ export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageP
     initialShowAccessRequest = true;
   } else {
     initialError = auth.error;
-  }
-
-  if (initialData && !params.purchased) {
-    return (
-      <PlayerTroveServerView
-        data={initialData}
-        token={params.token ?? null}
-        serverNow={serverNow}
-      />
-    );
   }
 
   return (

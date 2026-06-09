@@ -333,3 +333,121 @@ export function getPbVisionActionLabel(video: PlayerTroveVideo, now: Date) {
 
   return 'Send to PB Vision';
 }
+
+export function hasPurchasedProReview(
+  video: Pick<PlayerTroveVideo, 'upsell_offers'>
+) {
+  return getOffer(video, 'coach_review')?.status === 'purchased';
+}
+
+export function canPurchaseProReview(
+  video: Pick<PlayerTroveVideo, 'upsell_offers'>
+) {
+  return getOffer(video, 'coach_review')?.status === 'available';
+}
+
+export function isProReviewExpired(
+  video: Pick<PlayerTroveVideo, 'coach_review_expires_at'>,
+  now: Date
+) {
+  return (
+    !video.coach_review_expires_at || new Date(video.coach_review_expires_at) < now
+  );
+}
+
+export function isProReviewSubmitted(video: Pick<PlayerTroveVideo, 'pro_review_status'>) {
+  return (
+    video.pro_review_status === 'ready_for_reviewer' ||
+    video.pro_review_status === 'in_review'
+  );
+}
+
+export function isProReviewActionable(video: PlayerTroveVideo, now: Date) {
+  if (!hasPurchasedProReview(video)) {
+    return false;
+  }
+
+  if (isProReviewExpired(video, now)) {
+    return false;
+  }
+
+  if (!video.pro_review_status) {
+    return true;
+  }
+
+  if (video.pro_review_status === 'requested') {
+    return true;
+  }
+
+  if (video.pro_review_status === 'completed' && video.pro_review_reviewer_link) {
+    return true;
+  }
+
+  return false;
+}
+
+export function getProReviewAvailabilityLabel(video: PlayerTroveVideo, now: Date) {
+  const offer = getOffer(video, 'coach_review');
+
+  if (offer?.status === 'requires_video') {
+    return 'Requires video purchase';
+  }
+
+  if (offer?.status !== 'purchased') {
+    return 'Available to purchase';
+  }
+
+  if (isProReviewExpired(video, now)) {
+    return 'Pro Review access expired';
+  }
+
+  if (!video.pro_review_status) {
+    return 'Purchased — ready to request';
+  }
+
+  if (video.pro_review_status === 'requested') {
+    return 'Continue your request';
+  }
+
+  if (isProReviewSubmitted(video)) {
+    return 'Review in progress';
+  }
+
+  if (video.pro_review_status === 'completed') {
+    return 'Review complete';
+  }
+
+  if (video.pro_review_status === 'failed') {
+    return 'Request failed';
+  }
+
+  return 'Purchased';
+}
+
+export function getProReviewActionLabel(video: PlayerTroveVideo, now: Date) {
+  if (isProReviewExpired(video, now)) {
+    return 'Pro Review Expired';
+  }
+
+  if (!video.pro_review_status) {
+    return 'Request Pro Review';
+  }
+
+  if (video.pro_review_status === 'requested') {
+    return 'Continue Pro Review Request';
+  }
+
+  if (isProReviewSubmitted(video)) {
+    return 'Pro Review Requested';
+  }
+
+  if (video.pro_review_status === 'completed' && video.pro_review_reviewer_link) {
+    return 'View Pro Review';
+  }
+
+  if (video.pro_review_status === 'failed') {
+    return 'Pro Review Failed';
+  }
+
+  return 'Request Pro Review';
+}

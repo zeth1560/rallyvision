@@ -187,7 +187,7 @@ function productLineItemName(
       case 'pb_vision':
         return `${clip?.title || 'Full Game'} — PB Vision Analysis`;
       case 'coach_review':
-        return `${clip?.title || 'Full Game'} — Coach Review`;
+        return `${clip?.title || 'Full Game'} — Pro Review`;
       case 'full_game_hd':
         return `${clip?.title || 'Full Game'} — HD Video`;
       case 'clip_download':

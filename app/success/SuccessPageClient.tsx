@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import SessionPreview from '@/app/components/SessionPreview';
@@ -8,6 +9,7 @@ import { formatDuration } from '@/lib/format';
 import {
   canDownloadHd,
   canPurchasePbVision,
+  canPurchaseProReview,
   formatClaimedDate,
   formatClipRecordedAt,
   formatCents,
@@ -17,17 +19,28 @@ import {
   getClipLocationLine,
   getOffer,
   getPbVisionAvailabilityLabel,
+  getProReviewActionLabel,
+  getProReviewAvailabilityLabel,
   hasPbVisionRefund,
   hasPurchasedPbVision,
+  hasPurchasedProReview,
   isFullGameClip,
   isPbVisionAutoRetryPending,
   isPbVisionAwaitingAutoSubmit,
   isPbVisionExpired,
   isPbVisionProcessing,
+  isProReviewActionable,
+  isProReviewExpired,
+  isProReviewSubmitted,
   isShortClip,
   type PlayerTroveApiResponse,
   type PlayerTroveVideo,
 } from '@/lib/player-trove-display';
+
+const ProReviewRequestModal = dynamic(
+  () => import('@/app/player-trove/ProReviewRequestModal'),
+  { ssr: false }
+);
 
 type Clip = {
   id: string;
@@ -66,6 +79,10 @@ export default function SuccessPageClient() {
   const [isPaid, setIsPaid] = useState(true);
   const [downloadingClip, setDownloadingClip] = useState<string | null>(null);
   const [pbVisionErrors, setPbVisionErrors] = useState<Record<string, string>>({});
+  const [proReviewErrors, setProReviewErrors] = useState<Record<string, string>>({});
+  const [proReviewModalVideo, setProReviewModalVideo] = useState<PlayerTroveVideo | null>(
+    null
+  );
   const [purchaseLoadingKey, setPurchaseLoadingKey] = useState<string | null>(null);
   const [purchaseErrors, setPurchaseErrors] = useState<Record<string, string>>({});
   const [troveVideos, setTroveVideos] = useState<PlayerTroveVideo[]>([]);
@@ -232,7 +249,10 @@ export default function SuccessPageClient() {
     }, 4000);
   }
 
-  async function handlePbVisionPurchase(video: PlayerTroveVideo) {
+  async function handleAddonPurchase(
+    video: PlayerTroveVideo,
+    product: 'pb_vision' | 'coach_review'
+  ) {
     if (!playerTrove?.token) {
       setPurchaseErrors((prev) => ({
         ...prev,
@@ -241,7 +261,7 @@ export default function SuccessPageClient() {
       return;
     }
 
-    const loadingKey = `${video.access_id}:pb_vision`;
+    const loadingKey = `${video.access_id}:${product}`;
     setPurchaseLoadingKey(loadingKey);
     setPurchaseErrors((prev) => {
       const next = { ...prev };
@@ -255,7 +275,7 @@ export default function SuccessPageClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           access_id: video.access_id,
-          products: ['pb_vision'],
+          products: [product],
           token: playerTrove.token,
         }),
       });
@@ -285,6 +305,44 @@ export default function SuccessPageClient() {
     } finally {
       setPurchaseLoadingKey((current) => (current === loadingKey ? null : current));
     }
+  }
+
+  function updateTroveVideo(
+    accessId: string,
+    patch: Partial<PlayerTroveVideo>
+  ) {
+    setTroveVideos((current) =>
+      current.map((video) =>
+        video.access_id === accessId ? { ...video, ...patch } : video
+      )
+    );
+    setPlayerTrove((current) =>
+      current
+        ? {
+            ...current,
+            videos: current.videos.map((video) =>
+              video.access_id === accessId ? { ...video, ...patch } : video
+            ),
+          }
+        : current
+    );
+  }
+
+  function handleProReviewRequest(video: PlayerTroveVideo) {
+    if (!playerTrove?.token) {
+      setProReviewErrors((prev) => ({
+        ...prev,
+        [video.access_id]: 'Unable to verify access for Pro Review',
+      }));
+      return;
+    }
+
+    setProReviewErrors((prev) => {
+      const next = { ...prev };
+      delete next[video.access_id];
+      return next;
+    });
+    setProReviewModalVideo(video);
   }
 
   return (
@@ -372,7 +430,10 @@ export default function SuccessPageClient() {
                     pbVisionError={pbVisionErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
                     purchaseLoadingKey={purchaseLoadingKey}
                     purchaseError={purchaseErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
-                    onPbVisionPurchase={handlePbVisionPurchase}
+                    proReviewError={proReviewErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
+                    onPbVisionPurchase={(video) => handleAddonPurchase(video, 'pb_vision')}
+                    onProReviewPurchase={(video) => handleAddonPurchase(video, 'coach_review')}
+                    onProReviewRequest={handleProReviewRequest}
                   />
                 ))}
               </div>
@@ -423,10 +484,14 @@ export default function SuccessPageClient() {
                     video={video}
                     token={playerTrove?.token}
                     showPbVision
+                    showProReview
                     pbVisionError={pbVisionErrors[video.access_id]}
+                    proReviewError={proReviewErrors[video.access_id]}
                     purchaseLoadingKey={purchaseLoadingKey}
                     purchaseError={purchaseErrors[video.access_id]}
-                    onPbVisionPurchase={handlePbVisionPurchase}
+                    onPbVisionPurchase={(v) => handleAddonPurchase(v, 'pb_vision')}
+                    onProReviewPurchase={(v) => handleAddonPurchase(v, 'coach_review')}
+                    onProReviewRequest={handleProReviewRequest}
                   />
                 ))}
               </div>
@@ -434,6 +499,22 @@ export default function SuccessPageClient() {
           )}
         </>
       )}
+
+      {proReviewModalVideo && playerTrove?.token ? (
+        <ProReviewRequestModal
+          video={{
+            access_id: proReviewModalVideo.access_id,
+            clip_title: proReviewModalVideo.clip_title,
+          }}
+          token={playerTrove.token}
+          initialRequestId={proReviewModalVideo.pro_review_request_id}
+          onClose={() => setProReviewModalVideo(null)}
+          onSubmitted={(patch) => {
+            updateTroveVideo(proReviewModalVideo.access_id, patch);
+            setProReviewModalVideo(null);
+          }}
+        />
+      ) : null}
     </ReplayTrovePageShell>
   );
 }
@@ -444,21 +525,27 @@ function PurchasedClipCard({
   downloadingClip,
   onDownload,
   pbVisionError,
+  proReviewError,
   purchaseLoadingKey,
   purchaseError,
   onPbVisionPurchase,
+  onProReviewPurchase,
+  onProReviewRequest,
 }: {
   order: Order;
   troveVideo?: PlayerTroveVideo;
   downloadingClip: string | null;
   onDownload: (clipId: string) => void;
   pbVisionError?: string;
+  proReviewError?: string;
   purchaseLoadingKey: string | null;
   purchaseError?: string;
   onPbVisionPurchase: (video: PlayerTroveVideo) => void;
+  onProReviewPurchase: (video: PlayerTroveVideo) => void;
+  onProReviewRequest: (video: PlayerTroveVideo) => void;
 }) {
   const clip = order.clip;
-  const showPbVision = isOrderFullGame(order) && Boolean(troveVideo);
+  const showAddons = isOrderFullGame(order) && Boolean(troveVideo);
 
   return (
     <div style={clipCardStyle}>
@@ -489,14 +576,24 @@ function PurchasedClipCard({
         {downloadingClip === order.clip_id ? 'Preparing...' : 'Download Clip'}
       </button>
 
-      {showPbVision && troveVideo ? (
-        <PbVisionSection
-          video={troveVideo}
-          pbVisionError={pbVisionError}
-          purchaseLoadingKey={purchaseLoadingKey}
-          purchaseError={purchaseError}
-          onPbVisionPurchase={onPbVisionPurchase}
-        />
+      {showAddons && troveVideo ? (
+        <>
+          <PbVisionSection
+            video={troveVideo}
+            pbVisionError={pbVisionError}
+            purchaseLoadingKey={purchaseLoadingKey}
+            purchaseError={purchaseError}
+            onPbVisionPurchase={onPbVisionPurchase}
+          />
+          <ProReviewSection
+            video={troveVideo}
+            proReviewError={proReviewError}
+            purchaseLoadingKey={purchaseLoadingKey}
+            purchaseError={purchaseError}
+            onProReviewPurchase={onProReviewPurchase}
+            onProReviewRequest={onProReviewRequest}
+          />
+        </>
       ) : null}
     </div>
   );
@@ -596,22 +693,125 @@ function PbVisionSection({
   );
 }
 
+function ProReviewSection({
+  video,
+  proReviewError,
+  purchaseLoadingKey,
+  purchaseError,
+  onProReviewPurchase,
+  onProReviewRequest,
+}: {
+  video: PlayerTroveVideo;
+  proReviewError?: string;
+  purchaseLoadingKey: string | null;
+  purchaseError?: string;
+  onProReviewPurchase: (video: PlayerTroveVideo) => void;
+  onProReviewRequest: (video: PlayerTroveVideo) => void;
+}) {
+  const now = new Date();
+  const proReviewOffer = getOffer(video, 'coach_review');
+  const purchased = hasPurchasedProReview(video);
+  const canPurchase = canPurchaseProReview(video);
+  const expired = purchased && isProReviewExpired(video, now);
+  const isPurchaseLoading = purchaseLoadingKey === `${video.access_id}:coach_review`;
+  const completed =
+    video.pro_review_status === 'completed' && Boolean(video.pro_review_reviewer_link);
+  const submitted = isProReviewSubmitted(video);
+  const actionable = isProReviewActionable(video, now);
+  const actionLabel = getProReviewActionLabel(video, now);
+  const availabilityLabel = getProReviewAvailabilityLabel(video, now);
+
+  return (
+    <div style={pbVisionBoxStyle}>
+      <div style={pbVisionHeaderStyle}>
+        <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>Pro Review</span>
+        <span style={pbVisionStatusBadgeStyle(availabilityLabel)}>{availabilityLabel}</span>
+      </div>
+
+      {canPurchase && proReviewOffer ? (
+        <button
+          type="button"
+          disabled={isPurchaseLoading}
+          onClick={() => onProReviewPurchase(video)}
+          style={{
+            ...secondaryActionButtonStyle,
+            marginTop: '10px',
+            opacity: isPurchaseLoading ? 0.65 : 1,
+            cursor: isPurchaseLoading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {isPurchaseLoading
+            ? 'Starting checkout...'
+            : `Purchase Pro Review (${formatCents(proReviewOffer.price_cents)})`}
+        </button>
+      ) : purchased ? (
+        <>
+          {completed && video.pro_review_reviewer_link ? (
+            <a
+              href={video.pro_review_reviewer_link}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...secondaryActionButtonStyle, marginTop: '10px' }}
+            >
+              View Pro Review
+            </a>
+          ) : submitted ? (
+            <p style={{ margin: '10px 0 0', color: '#555', fontSize: '0.9rem' }}>
+              Your Pro Review request is with our reviewer. We will notify you when it is
+              ready.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={expired || !actionable}
+              onClick={() => {
+                if (!expired && actionable) {
+                  onProReviewRequest(video);
+                }
+              }}
+              style={{
+                ...proReviewActionButtonStyle,
+                marginTop: '10px',
+                opacity: expired || !actionable ? 0.65 : 1,
+                cursor: expired || !actionable ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {actionLabel}
+            </button>
+          )}
+        </>
+      ) : null}
+
+      {proReviewError ? <p style={errorTextStyle}>{proReviewError}</p> : null}
+      {purchaseError ? <p style={errorTextStyle}>{purchaseError}</p> : null}
+    </div>
+  );
+}
+
 function LibraryVideoCard({
   video,
   token,
   showPbVision = false,
+  showProReview = false,
   pbVisionError,
+  proReviewError,
   purchaseLoadingKey,
   purchaseError,
   onPbVisionPurchase,
+  onProReviewPurchase,
+  onProReviewRequest,
 }: {
   video: PlayerTroveVideo;
   token?: string;
   showPbVision?: boolean;
+  showProReview?: boolean;
   pbVisionError?: string;
+  proReviewError?: string;
   purchaseLoadingKey?: string | null;
   purchaseError?: string;
   onPbVisionPurchase?: (video: PlayerTroveVideo) => void;
+  onProReviewPurchase?: (video: PlayerTroveVideo) => void;
+  onProReviewRequest?: (video: PlayerTroveVideo) => void;
 }) {
   const now = new Date();
   const heading = getClipHeading(video);
@@ -675,6 +875,17 @@ function LibraryVideoCard({
           purchaseLoadingKey={purchaseLoadingKey ?? null}
           purchaseError={purchaseError}
           onPbVisionPurchase={onPbVisionPurchase}
+        />
+      ) : null}
+
+      {showProReview && onProReviewPurchase && onProReviewRequest ? (
+        <ProReviewSection
+          video={video}
+          proReviewError={proReviewError}
+          purchaseLoadingKey={purchaseLoadingKey ?? null}
+          purchaseError={purchaseError}
+          onProReviewPurchase={onProReviewPurchase}
+          onProReviewRequest={onProReviewRequest}
         />
       ) : null}
     </div>
@@ -872,6 +1083,20 @@ const secondaryActionButtonStyle = {
   textDecoration: 'none',
   boxSizing: 'border-box' as const,
   cursor: 'pointer',
+};
+
+const proReviewActionButtonStyle = {
+  display: 'block',
+  width: '100%',
+  padding: '0.75rem',
+  background: '#ffc107',
+  color: '#111111',
+  border: 'none',
+  borderRadius: '10px',
+  fontWeight: 700,
+  fontSize: '0.92rem',
+  textAlign: 'center' as const,
+  boxSizing: 'border-box' as const,
 };
 
 const errorTextStyle = {
