@@ -250,3 +250,62 @@ export async function sendPlayerTroveMagicLinkEmail({
 }) {
   return sendPlayerTroveAccessEmail(to, { source: 'manual_request' });
 }
+
+export async function sendPbVisionRefundEmail({
+  email,
+  clipLabel,
+  refundAmountCents,
+  refundStatus,
+  errorReason,
+}: {
+  email: string;
+  clipLabel: string;
+  refundAmountCents: number;
+  refundStatus: 'completed' | 'skipped_free' | 'failed' | 'not_applicable';
+  errorReason?: string | null;
+}) {
+  const configIssues = getPlayerTroveEmailConfigIssues();
+  if (configIssues.length > 0) {
+    throw new Error(describePlayerTroveEmailConfigIssues(configIssues));
+  }
+
+  const playerTroveUrl = buildPlayerTroveMagicLinkUrl(email);
+  const troveSection = playerTroveAccessSectionHtml(playerTroveUrl);
+  const refundLine =
+    refundStatus === 'completed' && refundAmountCents > 0
+      ? `We issued a refund of $${(refundAmountCents / 100).toFixed(2)} to your original payment method.`
+      : refundStatus === 'skipped_free'
+        ? 'No charge was applied for this PB Vision purchase, so no payment refund was needed.'
+        : refundStatus === 'failed'
+          ? 'We attempted to refund your PB Vision purchase but the refund could not be completed automatically. Our team will follow up shortly.'
+          : 'We could not locate a PB Vision charge to refund automatically. Our team will follow up if a payment was made.';
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.EMAIL_FROM!,
+    to: email,
+    subject: 'PB Vision analysis unavailable — refund issued',
+    html: wrapEmailBody(`
+      <h1 style="margin-top: 0;">PB Vision analysis could not be completed</h1>
+      <p>
+        We tried to deliver PB Vision analysis for <strong>${clipLabel}</strong>
+        three times without success, so we stopped retrying.
+      </p>
+      <p>${refundLine}</p>
+      ${
+        errorReason
+          ? `<p style="color: #666; font-size: 14px;">Technical detail: ${errorReason}</p>`
+          : ''
+      }
+      <p>
+        You can purchase PB Vision again from PlayerTrove if you would like to try again later.
+      </p>
+      ${troveSection}
+    `),
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to send PB Vision refund email');
+  }
+
+  return data;
+}

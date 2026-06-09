@@ -110,6 +110,8 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
       status: string;
       pbv_webpage_url: string | null;
       error_reason: string | null;
+      refund_status: string | null;
+      submission_attempt_count: number;
     }
   >();
 
@@ -127,7 +129,9 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
   if (accessIds.length > 0) {
     const { data: pbVisionRows } = await supabaseAdmin
       .from('pb_vision_requests')
-      .select('id, player_video_access_id, status, pbv_webpage_url, error_reason')
+      .select(
+        'id, player_video_access_id, status, pbv_webpage_url, error_reason, refund_status, submission_attempt_count'
+      )
       .in('player_video_access_id', accessIds);
 
     for (const row of pbVisionRows ?? []) {
@@ -136,6 +140,8 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         status: row.status,
         pbv_webpage_url: row.pbv_webpage_url,
         error_reason: row.error_reason,
+        refund_status: row.refund_status,
+        submission_attempt_count: row.submission_attempt_count,
       });
     }
 
@@ -232,6 +238,8 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         pb_vision_status: pbVision?.status ?? null,
         pb_vision_webpage_url: pbVision?.pbv_webpage_url ?? null,
         pb_vision_error_reason: pbVision?.error_reason ?? null,
+        pb_vision_refund_status: pbVision?.refund_status ?? null,
+        pb_vision_submission_attempt_count: pbVision?.submission_attempt_count ?? 0,
         coach_review_expires_at: record.coach_review_expires_at,
         pro_review_request_id: proReview?.id ?? null,
         pro_review_status: proReview?.status ?? null,

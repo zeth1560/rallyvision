@@ -30,6 +30,8 @@ export type PlayerTroveVideo = {
   pb_vision_status: string | null;
   pb_vision_webpage_url: string | null;
   pb_vision_error_reason: string | null;
+  pb_vision_refund_status: string | null;
+  pb_vision_submission_attempt_count: number;
   coach_review_expires_at: string | null;
   pro_review_request_id: string | null;
   pro_review_status: string | null;
@@ -53,6 +55,10 @@ export function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
     second: '2-digit',
     timeZone,
   });
+}
+
+export function formatClipRecordedAt(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
+  return `${formatSessionDate(recordedAt, timeZone)} at ${formatClipTime(recordedAt, timeZone)}`;
 }
 
 export function formatSessionDate(dateValue: string, timeZone = CLUB_TIME_ZONE) {
@@ -174,4 +180,126 @@ export function canDownloadHd(video: PlayerTroveVideo, now: Date) {
   }
 
   return new Date(video.download_expires_at) >= now;
+}
+
+export function isPbVisionExpired(video: PlayerTroveVideo, now: Date) {
+  return !video.pb_vision_expires_at || new Date(video.pb_vision_expires_at) < now;
+}
+
+export function isPbVisionProcessing(status: string | null) {
+  return status === 'requested' || status === 'submitted' || status === 'processing';
+}
+
+export const MAX_PB_VISION_SUBMISSION_ATTEMPTS = 3;
+
+export function hasPurchasedPbVision(video: PlayerTroveVideo) {
+  return getOffer(video, 'pb_vision')?.status === 'purchased';
+}
+
+export function canPurchasePbVision(video: PlayerTroveVideo) {
+  return getOffer(video, 'pb_vision')?.status === 'available';
+}
+
+export function hasPbVisionRefund(
+  video: Pick<PlayerTroveVideo, 'pb_vision_refund_status'>
+) {
+  return (
+    video.pb_vision_refund_status === 'completed' ||
+    video.pb_vision_refund_status === 'skipped_free'
+  );
+}
+
+export function isPbVisionAutoRetryPending(
+  video: Pick<
+    PlayerTroveVideo,
+    | 'pb_vision_refund_status'
+    | 'pb_vision_status'
+    | 'pb_vision_submission_attempt_count'
+  >
+) {
+  if (hasPbVisionRefund(video)) {
+    return false;
+  }
+
+  if (video.pb_vision_status !== 'failed') {
+    return false;
+  }
+
+  return (
+    video.pb_vision_submission_attempt_count < MAX_PB_VISION_SUBMISSION_ATTEMPTS
+  );
+}
+
+export function getPbVisionAvailabilityLabel(video: PlayerTroveVideo, now: Date) {
+  const offer = getOffer(video, 'pb_vision');
+
+  if (hasPbVisionRefund(video)) {
+    return 'Refunded — analysis unavailable';
+  }
+
+  if (isPbVisionAutoRetryPending(video)) {
+    return `Retrying automatically (attempt ${Math.max(video.pb_vision_submission_attempt_count, 1)} of ${MAX_PB_VISION_SUBMISSION_ATTEMPTS})`;
+  }
+
+  if (offer?.status === 'requires_video') {
+    return 'Requires video purchase';
+  }
+
+  if (offer?.status !== 'purchased') {
+    return 'Available to purchase';
+  }
+
+  if (isPbVisionExpired(video, now)) {
+    return 'PB Vision access expired';
+  }
+
+  if (!video.pb_vision_status) {
+    return 'Purchased — ready for analysis';
+  }
+
+  if (isPbVisionProcessing(video.pb_vision_status)) {
+    return 'Analysis in progress';
+  }
+
+  if (video.pb_vision_status === 'completed') {
+    return 'Analysis complete';
+  }
+
+  if (video.pb_vision_status === 'failed') {
+    return 'Analysis failed';
+  }
+
+  return 'Purchased';
+}
+
+export function getPbVisionActionLabel(video: PlayerTroveVideo, now: Date) {
+  if (hasPbVisionRefund(video)) {
+    return 'Purchase PB Vision again';
+  }
+
+  if (isPbVisionAutoRetryPending(video)) {
+    return 'Retrying automatically';
+  }
+
+  if (isPbVisionExpired(video, now)) {
+    return 'PB Vision Expired';
+  }
+
+  if (!video.pb_vision_status) {
+    return 'Send to PB Vision';
+  }
+
+  if (isPbVisionProcessing(video.pb_vision_status)) {
+    return 'PB Vision Processing';
+  }
+
+  if (video.pb_vision_status === 'completed' && video.pb_vision_webpage_url) {
+    return 'View PB Vision Results';
+  }
+
+  if (video.pb_vision_status === 'failed') {
+    return 'Retry PB Vision';
+  }
+
+  return 'Send to PB Vision';
 }

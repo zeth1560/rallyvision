@@ -43,6 +43,10 @@ type PbVisionRequestRow = {
   submitted_at: string | null;
   completed_at: string | null;
   callback_received_at: string | null;
+  submission_attempt_count: number;
+  refund_status: string | null;
+  stripe_refund_id: string | null;
+  refunded_at: string | null;
   player_video_access_id: string;
   clips: ClipRelation | ClipRelation[] | null;
   player_video_access: AccessRelation | AccessRelation[] | null;
@@ -133,6 +137,10 @@ export default async function AdminPbVisionRequestsPage({
       submitted_at,
       completed_at,
       callback_received_at,
+      submission_attempt_count,
+      refund_status,
+      stripe_refund_id,
+      refunded_at,
       player_video_access_id,
       clips (id, title, slug),
       player_video_access (id, access_status, pb_vision_expires_at)
@@ -331,6 +339,12 @@ export default async function AdminPbVisionRequestsPage({
                     <div>
                       <strong>Callback:</strong>{' '}
                       {formatTimestamp(request.callback_received_at)}
+                    </div>
+                    <div>
+                      <strong>Attempts:</strong> {request.submission_attempt_count}
+                    </div>
+                    <div>
+                      <strong>Refund:</strong> {request.refund_status || '—'}
                     </div>
                     <div style={{ wordBreak: 'break-all' }}>
                       <strong>Clip ID:</strong> {request.clip_id}

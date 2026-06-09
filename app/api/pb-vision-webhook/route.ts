@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { processPbVisionFailureAfterDeliveryError } from '@/lib/pb-vision-retry-refund';
 
 type PbVisionCallback = {
   vid?: string;
@@ -76,6 +78,26 @@ export async function POST(request: NextRequest) {
       pbv_vid: pbvVid,
       status: updatePayload.status,
     });
+
+    if (hasError) {
+      const requestId = data.id as string;
+      const failureReason =
+        typeof body.error?.reason === 'string'
+          ? body.error.reason
+          : 'Unknown error';
+
+      after(async () => {
+        try {
+          await processPbVisionFailureAfterDeliveryError(requestId, failureReason);
+        } catch (retryError) {
+          console.error('[PB Vision Webhook] Auto-retry/refund failed', {
+            request_id: requestId,
+            error:
+              retryError instanceof Error ? retryError.message : retryError,
+          });
+        }
+      });
+    }
   }
 
   return NextResponse.json({ ok: true });

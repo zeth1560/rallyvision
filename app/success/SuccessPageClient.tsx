@@ -7,12 +7,23 @@ import DownloadAllButton from '@/app/components/DownloadAllButton';
 import { formatDuration } from '@/lib/format';
 import {
   canDownloadHd,
+  canPurchasePbVision,
   formatClaimedDate,
+  formatClipRecordedAt,
+  formatCents,
   formatDownloadExpiry,
   getClipDateLine,
   getClipHeading,
   getClipLocationLine,
+  getOffer,
+  getPbVisionActionLabel,
+  getPbVisionAvailabilityLabel,
+  hasPbVisionRefund,
+  hasPurchasedPbVision,
   isFullGameClip,
+  isPbVisionAutoRetryPending,
+  isPbVisionExpired,
+  isPbVisionProcessing,
   isShortClip,
   type PlayerTroveApiResponse,
   type PlayerTroveVideo,
@@ -36,17 +47,9 @@ type PlayerTrovePayload = PlayerTroveApiResponse & {
   token: string;
 };
 
-const CLUB_TIME_ZONE = 'America/Chicago';
-
-function formatClipTime(recordedAt: string, timeZone = CLUB_TIME_ZONE) {
-  const date = new Date(recordedAt);
-
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZone,
-  });
+function isOrderFullGame(order: Order) {
+  const duration = order.clip?.duration_seconds;
+  return duration != null && duration >= 5 * 60;
 }
 
 export default function SuccessPageClient() {
@@ -62,6 +65,11 @@ export default function SuccessPageClient() {
   const [amountKnown, setAmountKnown] = useState(false);
   const [isPaid, setIsPaid] = useState(true);
   const [downloadingClip, setDownloadingClip] = useState<string | null>(null);
+  const [pbVisionLoadingAccessId, setPbVisionLoadingAccessId] = useState<string | null>(null);
+  const [pbVisionErrors, setPbVisionErrors] = useState<Record<string, string>>({});
+  const [purchaseLoadingKey, setPurchaseLoadingKey] = useState<string | null>(null);
+  const [purchaseErrors, setPurchaseErrors] = useState<Record<string, string>>({});
+  const [troveVideos, setTroveVideos] = useState<PlayerTroveVideo[]>([]);
 
   useEffect(() => {
     async function loadSessionWithRetry() {
@@ -96,6 +104,9 @@ export default function SuccessPageClient() {
               Array.isArray(data.purchased_clip_ids) ? data.purchased_clip_ids : []
             );
             setPlayerTrove(data.player_trove || null);
+            setTroveVideos(
+              Array.isArray(data.player_trove?.videos) ? data.player_trove.videos : []
+            );
 
             // Session total from API (do not sum order rows — each holds the full Stripe total).
             const centsFromApi =
@@ -193,6 +204,14 @@ export default function SuccessPageClient() {
     [libraryVideos]
   );
 
+  const troveByClipId = useMemo(() => {
+    const map = new Map<string, PlayerTroveVideo>();
+    for (const video of troveVideos) {
+      map.set(video.clip_id, video);
+    }
+    return map;
+  }, [troveVideos]);
+
   const playerTroveHref = playerTrove?.token
     ? `/player-trove?token=${encodeURIComponent(playerTrove.token)}`
     : '/player-trove';
@@ -212,6 +231,143 @@ export default function SuccessPageClient() {
     setTimeout(() => {
       setDownloadingClip((current) => (current === clipId ? null : current));
     }, 4000);
+  }
+
+  function updateTroveVideo(
+    accessId: string,
+    patch: Partial<
+      Pick<
+        PlayerTroveVideo,
+        | 'pb_vision_request_id'
+        | 'pb_vision_status'
+        | 'pb_vision_webpage_url'
+        | 'pb_vision_error_reason'
+      >
+    >
+  ) {
+    setTroveVideos((current) =>
+      current.map((video) =>
+        video.access_id === accessId ? { ...video, ...patch } : video
+      )
+    );
+    setPlayerTrove((current) =>
+      current
+        ? {
+            ...current,
+            videos: current.videos.map((video) =>
+              video.access_id === accessId ? { ...video, ...patch } : video
+            ),
+          }
+        : current
+    );
+  }
+
+  async function handlePbVisionRequest(video: PlayerTroveVideo) {
+    if (!playerTrove?.token) {
+      setPbVisionErrors((prev) => ({
+        ...prev,
+        [video.access_id]: 'Unable to verify access for PB Vision',
+      }));
+      return;
+    }
+
+    setPbVisionLoadingAccessId(video.access_id);
+    setPbVisionErrors((prev) => {
+      const next = { ...prev };
+      delete next[video.access_id];
+      return next;
+    });
+
+    try {
+      const response = await fetch('/api/player-trove/pb-vision/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_id: video.access_id,
+          token: playerTrove.token,
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setPbVisionErrors((prev) => ({
+          ...prev,
+          [video.access_id]: result?.error || 'PB Vision request failed',
+        }));
+        return;
+      }
+
+      updateTroveVideo(video.access_id, {
+        pb_vision_request_id: result.request_id ?? video.pb_vision_request_id,
+        pb_vision_status: result.status ?? 'submitted',
+        pb_vision_webpage_url: result.pbv_webpage_url ?? null,
+        pb_vision_error_reason: null,
+      });
+    } catch (err) {
+      setPbVisionErrors((prev) => ({
+        ...prev,
+        [video.access_id]: err instanceof Error ? err.message : 'PB Vision request failed',
+      }));
+    } finally {
+      setPbVisionLoadingAccessId((current) =>
+        current === video.access_id ? null : current
+      );
+    }
+  }
+
+  async function handlePbVisionPurchase(video: PlayerTroveVideo) {
+    if (!playerTrove?.token) {
+      setPurchaseErrors((prev) => ({
+        ...prev,
+        [video.access_id]: 'Unable to verify access for checkout',
+      }));
+      return;
+    }
+
+    const loadingKey = `${video.access_id}:pb_vision`;
+    setPurchaseLoadingKey(loadingKey);
+    setPurchaseErrors((prev) => {
+      const next = { ...prev };
+      delete next[video.access_id];
+      return next;
+    });
+
+    try {
+      const response = await fetch('/api/player-trove/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_id: video.access_id,
+          products: ['pb_vision'],
+          token: playerTrove.token,
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setPurchaseErrors((prev) => ({
+          ...prev,
+          [video.access_id]: result?.error || 'Checkout failed',
+        }));
+        return;
+      }
+
+      if (result.url) {
+        window.location.href = result.url;
+      } else {
+        setPurchaseErrors((prev) => ({
+          ...prev,
+          [video.access_id]: 'Checkout URL not returned',
+        }));
+      }
+    } catch (err) {
+      setPurchaseErrors((prev) => ({
+        ...prev,
+        [video.access_id]: err instanceof Error ? err.message : 'Checkout failed',
+      }));
+    } finally {
+      setPurchaseLoadingKey((current) => (current === loadingKey ? null : current));
+    }
   }
 
   return (
@@ -290,39 +446,19 @@ export default function SuccessPageClient() {
               <h2 style={sectionHeadingStyle}>Just Purchased</h2>
               <div style={gridStyle}>
                 {orders.map((order) => (
-                  <div key={order.clip_id} style={clipCardStyle}>
-                    {order.clip?.slug ? (
-                      <SessionPreview slug={order.clip.slug} />
-                    ) : (
-                      <div style={previewFallbackStyle}>Preview unavailable</div>
-                    )}
-
-                    <h3 style={titleStyle}>
-                      {order.clip?.recorded_at
-                        ? formatClipTime(order.clip.recorded_at)
-                        : order.clip?.title || 'Clip'}
-                      {order.clip?.duration_seconds
-                        ? ` | ${formatDuration(order.clip.duration_seconds)}`
-                        : ''}
-                    </h3>
-
-                    <button
-                      disabled={downloadingClip === order.clip_id}
-                      onClick={() => handleClipDownload(order.clip_id)}
-                      style={{
-                        ...downloadButton,
-                        opacity: downloadingClip === order.clip_id ? 0.6 : 1,
-                        cursor:
-                          downloadingClip === order.clip_id
-                            ? 'not-allowed'
-                            : 'pointer',
-                      }}
-                    >
-                      {downloadingClip === order.clip_id
-                        ? 'Preparing...'
-                        : 'Download Clip'}
-                    </button>
-                  </div>
+                  <PurchasedClipCard
+                    key={order.clip_id}
+                    order={order}
+                    troveVideo={troveByClipId.get(order.clip_id)}
+                    downloadingClip={downloadingClip}
+                    onDownload={handleClipDownload}
+                    pbVisionLoadingAccessId={pbVisionLoadingAccessId}
+                    pbVisionError={pbVisionErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
+                    purchaseLoadingKey={purchaseLoadingKey}
+                    purchaseError={purchaseErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
+                    onPbVisionRequest={handlePbVisionRequest}
+                    onPbVisionPurchase={handlePbVisionPurchase}
+                  />
                 ))}
               </div>
             </>
@@ -371,6 +507,13 @@ export default function SuccessPageClient() {
                     key={video.access_id}
                     video={video}
                     token={playerTrove?.token}
+                    showPbVision
+                    pbVisionLoadingAccessId={pbVisionLoadingAccessId}
+                    pbVisionError={pbVisionErrors[video.access_id]}
+                    purchaseLoadingKey={purchaseLoadingKey}
+                    purchaseError={purchaseErrors[video.access_id]}
+                    onPbVisionRequest={handlePbVisionRequest}
+                    onPbVisionPurchase={handlePbVisionPurchase}
                   />
                 ))}
               </div>
@@ -382,12 +525,206 @@ export default function SuccessPageClient() {
   );
 }
 
+function PurchasedClipCard({
+  order,
+  troveVideo,
+  downloadingClip,
+  onDownload,
+  pbVisionLoadingAccessId,
+  pbVisionError,
+  purchaseLoadingKey,
+  purchaseError,
+  onPbVisionRequest,
+  onPbVisionPurchase,
+}: {
+  order: Order;
+  troveVideo?: PlayerTroveVideo;
+  downloadingClip: string | null;
+  onDownload: (clipId: string) => void;
+  pbVisionLoadingAccessId: string | null;
+  pbVisionError?: string;
+  purchaseLoadingKey: string | null;
+  purchaseError?: string;
+  onPbVisionRequest: (video: PlayerTroveVideo) => void;
+  onPbVisionPurchase: (video: PlayerTroveVideo) => void;
+}) {
+  const clip = order.clip;
+  const showPbVision = isOrderFullGame(order) && Boolean(troveVideo);
+
+  return (
+    <div style={clipCardStyle}>
+      {clip?.slug ? (
+        <SessionPreview slug={clip.slug} />
+      ) : (
+        <div style={previewFallbackStyle}>Preview unavailable</div>
+      )}
+
+      <h3 style={titleStyle}>
+        {clip?.recorded_at
+          ? formatClipRecordedAt(clip.recorded_at)
+          : clip?.title || 'Clip'}
+        {clip?.duration_seconds
+          ? ` | ${formatDuration(clip.duration_seconds)}`
+          : ''}
+      </h3>
+
+      <button
+        disabled={downloadingClip === order.clip_id}
+        onClick={() => onDownload(order.clip_id)}
+        style={{
+          ...downloadButton,
+          opacity: downloadingClip === order.clip_id ? 0.6 : 1,
+          cursor: downloadingClip === order.clip_id ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {downloadingClip === order.clip_id ? 'Preparing...' : 'Download Clip'}
+      </button>
+
+      {showPbVision && troveVideo ? (
+        <PbVisionSection
+          video={troveVideo}
+          pbVisionLoadingAccessId={pbVisionLoadingAccessId}
+          pbVisionError={pbVisionError}
+          purchaseLoadingKey={purchaseLoadingKey}
+          purchaseError={purchaseError}
+          onPbVisionRequest={onPbVisionRequest}
+          onPbVisionPurchase={onPbVisionPurchase}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PbVisionSection({
+  video,
+  pbVisionLoadingAccessId,
+  pbVisionError,
+  purchaseLoadingKey,
+  purchaseError,
+  onPbVisionRequest,
+  onPbVisionPurchase,
+}: {
+  video: PlayerTroveVideo;
+  pbVisionLoadingAccessId: string | null;
+  pbVisionError?: string;
+  purchaseLoadingKey: string | null;
+  purchaseError?: string;
+  onPbVisionRequest: (video: PlayerTroveVideo) => void;
+  onPbVisionPurchase: (video: PlayerTroveVideo) => void;
+}) {
+  const now = new Date();
+  const pbVisionOffer = getOffer(video, 'pb_vision');
+  const purchased = hasPurchasedPbVision(video);
+  const canPurchase = canPurchasePbVision(video);
+  const expired = purchased && isPbVisionExpired(video, now);
+  const isLoading = pbVisionLoadingAccessId === video.access_id;
+  const isPurchaseLoading = purchaseLoadingKey === `${video.access_id}:pb_vision`;
+  const completed =
+    video.pb_vision_status === 'completed' && Boolean(video.pb_vision_webpage_url);
+  const processing = isPbVisionProcessing(video.pb_vision_status);
+  const refunded = hasPbVisionRefund(video);
+  const autoRetryPending = isPbVisionAutoRetryPending(video);
+  const actionLabel = getPbVisionActionLabel(video, now);
+  const availabilityLabel = getPbVisionAvailabilityLabel(video, now);
+
+  return (
+    <div style={pbVisionBoxStyle}>
+      <div style={pbVisionHeaderStyle}>
+        <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>PB Vision</span>
+        <span style={pbVisionStatusBadgeStyle(availabilityLabel)}>{availabilityLabel}</span>
+      </div>
+
+      {refunded ? (
+        <p style={{ margin: '10px 0 0', color: '#555', fontSize: '0.9rem' }}>
+          We could not deliver analysis after three attempts. Your PB Vision purchase has
+          been refunded automatically.
+        </p>
+      ) : autoRetryPending ? (
+        <p style={{ margin: '10px 0 0', color: '#555', fontSize: '0.9rem' }}>
+          We hit a delivery issue and are retrying automatically. No action is needed.
+        </p>
+      ) : canPurchase && pbVisionOffer ? (
+        <button
+          type="button"
+          disabled={isPurchaseLoading}
+          onClick={() => onPbVisionPurchase(video)}
+          style={{
+            ...secondaryActionButtonStyle,
+            marginTop: '10px',
+            opacity: isPurchaseLoading ? 0.65 : 1,
+            cursor: isPurchaseLoading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {isPurchaseLoading
+            ? 'Starting checkout...'
+            : `Purchase PB Vision (${formatCents(pbVisionOffer.price_cents)})`}
+        </button>
+      ) : purchased ? (
+        <>
+          {completed && video.pb_vision_webpage_url ? (
+            <a
+              href={video.pb_vision_webpage_url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...secondaryActionButtonStyle, marginTop: '10px' }}
+            >
+              View PB Vision Results
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled={expired || processing || isLoading}
+              onClick={() => {
+                if (expired || processing || isLoading) {
+                  return;
+                }
+                onPbVisionRequest(video);
+              }}
+              style={{
+                ...secondaryActionButtonStyle,
+                marginTop: '10px',
+                opacity: expired || processing || isLoading ? 0.65 : 1,
+                cursor: expired || processing || isLoading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isLoading ? 'Submitting...' : actionLabel}
+            </button>
+          )}
+        </>
+      ) : null}
+
+      {video.pb_vision_status === 'failed' &&
+      video.pb_vision_error_reason &&
+      !autoRetryPending &&
+      !refunded ? (
+        <p style={errorTextStyle}>{video.pb_vision_error_reason}</p>
+      ) : null}
+      {pbVisionError ? <p style={errorTextStyle}>{pbVisionError}</p> : null}
+      {purchaseError ? <p style={errorTextStyle}>{purchaseError}</p> : null}
+    </div>
+  );
+}
+
 function LibraryVideoCard({
   video,
   token,
+  showPbVision = false,
+  pbVisionLoadingAccessId,
+  pbVisionError,
+  purchaseLoadingKey,
+  purchaseError,
+  onPbVisionRequest,
+  onPbVisionPurchase,
 }: {
   video: PlayerTroveVideo;
   token?: string;
+  showPbVision?: boolean;
+  pbVisionLoadingAccessId?: string | null;
+  pbVisionError?: string;
+  purchaseLoadingKey?: string | null;
+  purchaseError?: string;
+  onPbVisionRequest?: (video: PlayerTroveVideo) => void;
+  onPbVisionPurchase?: (video: PlayerTroveVideo) => void;
 }) {
   const now = new Date();
   const heading = getClipHeading(video);
@@ -424,7 +761,9 @@ function LibraryVideoCard({
       <h3 style={titleStyle}>{heading}</h3>
 
       {locationLine && <p style={metaLineStyle}>{locationLine}</p>}
-      {dateLine && <p style={metaLineStyle}>{dateLine}</p>}
+      {dateLine && (
+        <p style={metaLineStyle}>Session date: {dateLine}</p>
+      )}
       {claimedDate && (
         <p style={metaLineStyle}>Claimed {claimedDate}</p>
       )}
@@ -441,6 +780,18 @@ function LibraryVideoCard({
           Download unavailable
         </p>
       )}
+
+      {showPbVision && onPbVisionRequest && onPbVisionPurchase ? (
+        <PbVisionSection
+          video={video}
+          pbVisionLoadingAccessId={pbVisionLoadingAccessId ?? null}
+          pbVisionError={pbVisionError}
+          purchaseLoadingKey={purchaseLoadingKey ?? null}
+          purchaseError={purchaseError}
+          onPbVisionRequest={onPbVisionRequest}
+          onPbVisionPurchase={onPbVisionPurchase}
+        />
+      ) : null}
     </div>
   );
 }
@@ -589,4 +940,58 @@ const downloadButton = {
   borderRadius: '10px',
   fontWeight: 700,
   fontSize: '0.96rem',
+};
+
+const pbVisionBoxStyle = {
+  marginTop: '14px',
+  padding: '12px',
+  borderRadius: '10px',
+  background: '#f8f9fa',
+  border: '1px solid #e9ecef',
+};
+
+const pbVisionHeaderStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '10px',
+  flexWrap: 'wrap' as const,
+};
+
+function pbVisionStatusBadgeStyle(label: string) {
+  const isComplete = label === 'Analysis complete';
+  const isProgress = label === 'Analysis in progress';
+  const isAvailable = label === 'Available to purchase';
+
+  return {
+    fontSize: '11px',
+    fontWeight: 700,
+    padding: '4px 8px',
+    borderRadius: '999px',
+    color: isComplete ? '#198754' : isProgress ? '#0d6efd' : isAvailable ? '#0d6efd' : '#555',
+    background: isComplete ? '#e8f5e9' : isProgress ? '#e7f1ff' : isAvailable ? '#e7f1ff' : '#f1f3f5',
+  };
+}
+
+const secondaryActionButtonStyle = {
+  display: 'block',
+  width: '100%',
+  padding: '0.75rem',
+  background: '#ffffff',
+  color: '#111111',
+  border: '1px solid #cfcfcf',
+  borderRadius: '10px',
+  fontWeight: 700,
+  fontSize: '0.92rem',
+  textAlign: 'center' as const,
+  textDecoration: 'none',
+  boxSizing: 'border-box' as const,
+  cursor: 'pointer',
+};
+
+const errorTextStyle = {
+  margin: '8px 0 0',
+  color: '#b00020',
+  fontSize: '0.85rem',
+  lineHeight: 1.4,
 };

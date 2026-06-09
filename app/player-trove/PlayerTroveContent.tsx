@@ -6,6 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { COACH_REVIEW_CUSTOMER_ENABLED, YOUTUBE_CUSTOMER_ENABLED } from '@/lib/commerce/products';
 import { formatDuration } from '@/lib/format';
+import {
+  hasPbVisionRefund,
+  isPbVisionAutoRetryPending,
+  isPbVisionProcessing,
+} from '@/lib/player-trove-display';
 
 const ProReviewRequestModal = dynamic(
   () => import('@/app/player-trove/ProReviewRequestModal'),
@@ -42,6 +47,8 @@ type Video = {
   pb_vision_status: string | null;
   pb_vision_webpage_url: string | null;
   pb_vision_error_reason: string | null;
+  pb_vision_refund_status: string | null;
+  pb_vision_submission_attempt_count: number;
   coach_review_expires_at: string | null;
   pro_review_request_id: string | null;
   pro_review_status: string | null;
@@ -155,15 +162,15 @@ function isPbVisionExpired(video: Video, now: Date) {
   return !video.pb_vision_expires_at || new Date(video.pb_vision_expires_at) < now;
 }
 
-function isPbVisionProcessing(status: string | null) {
-  return (
-    status === 'requested' ||
-    status === 'submitted' ||
-    status === 'processing'
-  );
-}
-
 function getPbVisionButtonLabel(video: Video, now: Date) {
+  if (hasPbVisionRefund(video)) {
+    return 'Refunded';
+  }
+
+  if (isPbVisionAutoRetryPending(video)) {
+    return 'Retrying automatically';
+  }
+
   if (isPbVisionExpired(video, now)) {
     return 'PB Vision Expired';
   }
@@ -308,9 +315,16 @@ function VideoCard({
   const pbVisionFailed = video.pb_vision_status === 'failed';
   const pbVisionCompleted =
     video.pb_vision_status === 'completed' && Boolean(video.pb_vision_webpage_url);
+  const pbVisionRefunded = hasPbVisionRefund(video);
+  const pbVisionAutoRetry = isPbVisionAutoRetryPending(video);
   const pbVisionBusy =
     isPbVisionLoading || isPbVisionProcessing(video.pb_vision_status);
-  const pbVisionDisabled = !pbVisionPurchased || pbVisionExpired || pbVisionBusy;
+  const pbVisionDisabled =
+    !pbVisionPurchased ||
+    pbVisionExpired ||
+    pbVisionBusy ||
+    pbVisionRefunded ||
+    pbVisionAutoRetry;
   const proReviewLabel = getProReviewButtonLabel(video, now);
   const proReviewFailed = video.pro_review_status === 'failed';
   const proReviewSubmitted =
