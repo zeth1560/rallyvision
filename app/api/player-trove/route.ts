@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
+import { autoSubmitPendingPbVisionPurchases } from '@/lib/pb-vision-request';
 import {
   PLAYER_TROVE_TOKEN_COOKIE,
   resolvePlayerTroveViewerEmail,
@@ -20,7 +21,14 @@ export async function GET(request: NextRequest) {
   });
 
   try {
-    const result = await fetchPlayerTroveVideosForEmail(auth.email);
+    let result = await fetchPlayerTroveVideosForEmail(auth.email);
+
+    await autoSubmitPendingPbVisionPurchases({
+      email: auth.email,
+      videos: result.videos,
+    });
+
+    result = await fetchPlayerTroveVideosForEmail(auth.email);
 
     console.log('[PlayerTrove] Videos fetched successfully', {
       auth_method: auth.auth,

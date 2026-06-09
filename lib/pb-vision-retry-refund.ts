@@ -382,7 +382,7 @@ export async function runPbVisionSubmissionAttempt({
   requestId: string;
   viewerEmail?: string;
   notes?: string | null;
-  source?: 'user' | 'auto_retry';
+  source?: 'user' | 'auto_retry' | 'auto_purchase';
 }): Promise<PbVisionSubmissionAttemptResult> {
   const request = await loadPbVisionRequest(requestId);
   if (!request) {
@@ -478,8 +478,8 @@ export async function runPbVisionSubmissionAttempt({
 
   const hdResolved = await resolveHdDownloadByAccessId(
     access.id,
-    source === 'auto_retry'
-      ? '/internal/pb-vision/auto-retry'
+    source === 'auto_retry' || source === 'auto_purchase'
+      ? '/internal/pb-vision/auto-submit'
       : '/api/player-trove/pb-vision/request',
     accessEmail
   );

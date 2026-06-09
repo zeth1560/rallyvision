@@ -100,7 +100,10 @@ export function formatCents(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-export function getOffer(video: PlayerTroveVideo, product: string) {
+export function getOffer(
+  video: Pick<PlayerTroveVideo, 'upsell_offers'>,
+  product: string
+) {
   return video.upsell_offers.find((offer) => offer.product === product);
 }
 
@@ -192,7 +195,9 @@ export function isPbVisionProcessing(status: string | null) {
 
 export const MAX_PB_VISION_SUBMISSION_ATTEMPTS = 3;
 
-export function hasPurchasedPbVision(video: PlayerTroveVideo) {
+export function hasPurchasedPbVision(
+  video: Pick<PlayerTroveVideo, 'upsell_offers'>
+) {
   return getOffer(video, 'pb_vision')?.status === 'purchased';
 }
 
@@ -207,6 +212,23 @@ export function hasPbVisionRefund(
     video.pb_vision_refund_status === 'completed' ||
     video.pb_vision_refund_status === 'skipped_free'
   );
+}
+
+export function isPbVisionAwaitingAutoSubmit(
+  video: Pick<
+    PlayerTroveVideo,
+    'pb_vision_status' | 'pb_vision_refund_status' | 'upsell_offers'
+  >
+) {
+  if (hasPbVisionRefund(video)) {
+    return false;
+  }
+
+  if (!hasPurchasedPbVision(video)) {
+    return false;
+  }
+
+  return !video.pb_vision_status || video.pb_vision_status === 'requested';
 }
 
 export function isPbVisionAutoRetryPending(
@@ -239,6 +261,10 @@ export function getPbVisionAvailabilityLabel(video: PlayerTroveVideo, now: Date)
 
   if (isPbVisionAutoRetryPending(video)) {
     return `Retrying automatically (attempt ${Math.max(video.pb_vision_submission_attempt_count, 1)} of ${MAX_PB_VISION_SUBMISSION_ATTEMPTS})`;
+  }
+
+  if (isPbVisionAwaitingAutoSubmit(video)) {
+    return 'Submitting for analysis';
   }
 
   if (offer?.status === 'requires_video') {
@@ -279,6 +305,10 @@ export function getPbVisionActionLabel(video: PlayerTroveVideo, now: Date) {
 
   if (isPbVisionAutoRetryPending(video)) {
     return 'Retrying automatically';
+  }
+
+  if (isPbVisionAwaitingAutoSubmit(video)) {
+    return 'Submitting automatically';
   }
 
   if (isPbVisionExpired(video, now)) {

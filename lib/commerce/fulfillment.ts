@@ -27,7 +27,10 @@ import {
   hasExistingSessionOrders,
 } from '@/lib/commerce/fulfillment-lock';
 import { resolveBaseProductForClip } from '@/lib/commerce/products';
+import { autoSubmitPbVisionAfterPurchase } from '@/lib/pb-vision-request';
 import type Stripe from 'stripe';
+
+const FULL_GAME_MIN_SECONDS = 5 * 60;
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -461,6 +464,46 @@ export async function fulfillStripeCheckoutSession({
       via_session_bundle: lineProducts.some((line) => line.coveredBySessionBundle),
       entitlement_patch: entitlementPatch,
     });
+
+    const purchasedPbVision = lineProducts.some(
+      (line) => line.productType === 'pb_vision'
+    );
+    const isFullGame =
+      clip.duration_seconds != null &&
+      clip.duration_seconds >= FULL_GAME_MIN_SECONDS;
+
+    if (purchasedPbVision && accessId && isFullGame) {
+      try {
+        const autoSubmitResult = await autoSubmitPbVisionAfterPurchase({
+          accessId,
+          email: normalizedEmail,
+        });
+
+        if (!autoSubmitResult.ok) {
+          console.error('[Fulfillment] PB Vision auto-submit failed', {
+            access_id: accessId,
+            clip_id: clipId,
+            error: autoSubmitResult.error,
+          });
+        } else {
+          console.log('[Fulfillment] PB Vision auto-submitted after purchase', {
+            access_id: accessId,
+            clip_id: clipId,
+            request_id: autoSubmitResult.request_id,
+            status: autoSubmitResult.status,
+          });
+        }
+      } catch (autoSubmitError) {
+        console.error('[Fulfillment] PB Vision auto-submit error', {
+          access_id: accessId,
+          clip_id: clipId,
+          error:
+            autoSubmitError instanceof Error
+              ? autoSubmitError.message
+              : autoSubmitError,
+        });
+      }
+    }
   }
 
   try {

@@ -9,6 +9,7 @@ import { formatDuration } from '@/lib/format';
 import {
   hasPbVisionRefund,
   isPbVisionAutoRetryPending,
+  isPbVisionAwaitingAutoSubmit,
   isPbVisionProcessing,
 } from '@/lib/player-trove-display';
 
@@ -171,6 +172,10 @@ function getPbVisionButtonLabel(video: Video, now: Date) {
     return 'Retrying automatically';
   }
 
+  if (isPbVisionAwaitingAutoSubmit(video)) {
+    return 'Submitting automatically';
+  }
+
   if (isPbVisionExpired(video, now)) {
     return 'PB Vision Expired';
   }
@@ -317,6 +322,7 @@ function VideoCard({
     video.pb_vision_status === 'completed' && Boolean(video.pb_vision_webpage_url);
   const pbVisionRefunded = hasPbVisionRefund(video);
   const pbVisionAutoRetry = isPbVisionAutoRetryPending(video);
+  const pbVisionAwaitingAutoSubmit = isPbVisionAwaitingAutoSubmit(video);
   const pbVisionBusy =
     isPbVisionLoading || isPbVisionProcessing(video.pb_vision_status);
   const pbVisionDisabled =
@@ -324,7 +330,8 @@ function VideoCard({
     pbVisionExpired ||
     pbVisionBusy ||
     pbVisionRefunded ||
-    pbVisionAutoRetry;
+    pbVisionAutoRetry ||
+    pbVisionAwaitingAutoSubmit;
   const proReviewLabel = getProReviewButtonLabel(video, now);
   const proReviewFailed = video.pro_review_status === 'failed';
   const proReviewSubmitted =

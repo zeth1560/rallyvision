@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
 import { createPlayerTroveToken } from '@/lib/player-trove-token';
+import { autoSubmitPbVisionForSessionClips } from '@/lib/pb-vision-request';
 
 export async function GET(request: Request) {
   try {
@@ -77,7 +78,15 @@ export async function GET(request: Request) {
 
     if (email) {
       try {
-        const troveData = await fetchPlayerTroveVideosForEmail(email);
+        let troveData = await fetchPlayerTroveVideosForEmail(email);
+
+        await autoSubmitPbVisionForSessionClips({
+          email,
+          clipIds,
+          videos: troveData.videos,
+        });
+
+        troveData = await fetchPlayerTroveVideosForEmail(email);
         playerTrove = {
           ...troveData,
           token: createPlayerTroveToken(email),
