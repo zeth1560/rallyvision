@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyPlayerTroveToken } from '@/lib/player-trove-token';
+import {
+  readPlayerTroveTokenFromRequest,
+  verifyPlayerTroveRequestToken,
+} from '@/lib/player-trove-auth';
 import {
   buildStripeCheckoutFromRequest,
   parseCheckoutBuildOptions,
@@ -59,20 +62,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'access_id is required' }, { status: 400 });
     }
 
-    const token =
-      typeof body?.token === 'string'
-        ? body.token.trim()
-        : request.nextUrl.searchParams.get('token')?.trim() ?? '';
+    const token = readPlayerTroveTokenFromRequest(request, body?.token);
 
     let viewerEmail: string | null = null;
 
     if (token) {
-      const verified = verifyPlayerTroveToken(token);
-      if (!verified) {
-        return NextResponse.json(
-          { error: 'Invalid or expired access link' },
-          { status: 401 }
-        );
+      const verified = verifyPlayerTroveRequestToken(token);
+      if (!verified.ok) {
+        return NextResponse.json({ error: verified.error }, { status: verified.status });
       }
       viewerEmail = verified.email;
     } else if (process.env.NODE_ENV !== 'production') {
@@ -183,6 +180,7 @@ export async function POST(request: NextRequest) {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
+      payment_method_collection: 'if_required',
       customer_email: viewerEmail,
       line_items: checkout.lineItems,
       success_url: `${appUrl}/player-trove?${returnParams}&purchased=1`,
@@ -209,26 +207,6 @@ export async function POST(request: NextRequest) {
     }
 
     const message = error instanceof Error ? error.message : 'Checkout failed';
-
-    if (message === 'MIXED_CART_NOT_SUPPORTED') {
-      return NextResponse.json(
-        {
-          error: 'Please check out free and paid products separately',
-          errorCode: 'MIXED_CART_NOT_SUPPORTED',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (message === 'FREE_CART_MUST_USE_FREE_CHECKOUT') {
-      return NextResponse.json(
-        {
-          error: 'This product is free and does not require checkout',
-          errorCode: 'FREE_CART_MUST_USE_FREE_CHECKOUT',
-        },
-        { status: 400 }
-      );
-    }
 
     console.error('[PlayerTrove Checkout] error:', error);
 

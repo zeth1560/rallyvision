@@ -197,18 +197,6 @@ function productLineItemName(
   return promoApplied ? `${baseName} (promo)` : baseName;
 }
 
-function isFreeClipDownloadLine(line: CheckoutPriceLine) {
-  return line.productType === 'clip_download' && line.originalAmountCents === 0;
-}
-
-function hasPaidCheckoutLines(priceLines: CheckoutPriceLine[]) {
-  return priceLines.some((line) => line.originalAmountCents > 0);
-}
-
-function hasFreeClipDownloadLines(priceLines: CheckoutPriceLine[]) {
-  return priceLines.some(isFreeClipDownloadLine);
-}
-
 export async function buildStripeCheckoutFromRequest(
   request: ParsedCheckoutRequest,
   options: CheckoutBuildOptions = {}
@@ -390,30 +378,6 @@ export async function buildStripeCheckoutFromRequest(
         unit_amount: line.discountedAmountCents,
       },
     });
-  }
-
-  const naturallyFreeClipDownloads = priceLines.filter(isFreeClipDownloadLine);
-  const hasPaidLines = hasPaidCheckoutLines(priceLines);
-
-  if (
-    !promoApplied &&
-    naturallyFreeClipDownloads.length > 0 &&
-    hasPaidLines
-  ) {
-    throw new Error('MIXED_CART_NOT_SUPPORTED');
-  }
-
-  const finalFreeItems = lineItems.filter(
-    (item) => (item.price_data?.unit_amount ?? 0) === 0
-  );
-  const finalPaidItems = lineItems.filter(
-    (item) => (item.price_data?.unit_amount ?? 0) > 0
-  );
-
-  if (finalFreeItems.length > 0 && finalPaidItems.length === 0) {
-    if (!promoApplied) {
-      throw new Error('FREE_CART_MUST_USE_FREE_CHECKOUT');
-    }
   }
 
   logCartNormalization({

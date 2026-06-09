@@ -160,9 +160,6 @@ export default function SessionClipGrid({
     [cart, pricingByClipId, bundleQuote]
   );
 
-  const isCartAllFree = cartHasItems(cart) && totalCents === 0;
-  const isCartPaid = cartHasItems(cart) && totalCents > 0;
-
   function clearCart() {
     setCart(emptyCartPayload(bookingId));
   }
@@ -264,46 +261,6 @@ export default function SessionClipGrid({
 
       if (!cartHasItems(cart)) {
         setCheckoutError('Your cart is empty');
-        return;
-      }
-
-      if (isCartAllFree) {
-        const normalizedEmail = normalizeCheckoutEmailInput(checkoutEmail);
-
-        if (!normalizedEmail) {
-          setCheckoutError(CHECKOUT_EMAIL_REQUIRED_MESSAGE);
-          return;
-        }
-
-        if (!isValidCheckoutEmail(normalizedEmail)) {
-          setCheckoutError('Please enter a valid email address.');
-          return;
-        }
-
-        const response = await fetch('/api/checkout/free', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: normalizedEmail,
-            session_bundle: cart.sessionBundle || undefined,
-            booking_id: cart.sessionBundle ? bookingId : undefined,
-            clip_ids: cart.sessionBundle ? undefined : getCartClipIds(cart),
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          setCheckoutError(data.error || 'Checkout failed');
-          return;
-        }
-
-        if (data.redirect_url) {
-          window.location.href = data.redirect_url;
-        } else {
-          setCheckoutError('Checkout completed but no redirect URL provided');
-        }
-
         return;
       }
 
@@ -873,38 +830,36 @@ export default function SessionClipGrid({
                     ) : null}
                   </div>
 
-                  {!isCartAllFree ? (
-                    <div style={{ marginBottom: '14px' }}>
-                      <label
-                        htmlFor="checkout-email-paid"
-                        style={{
-                          display: 'block',
-                          fontSize: '0.9rem',
-                          fontWeight: 600,
-                          marginBottom: '6px',
-                        }}
-                      >
-                        Email Address (required)
-                      </label>
-                      <input
-                        id="checkout-email-paid"
-                        type="email"
-                        placeholder="your@email.com"
-                        value={checkoutEmail}
-                        onChange={(event) => setCheckoutEmail(event.target.value)}
-                        disabled={isCheckingOut}
-                        required
-                        autoComplete="email"
-                        style={{
-                          width: '100%',
-                          padding: '10px',
-                          border: '1px solid #ddd',
-                          borderRadius: '6px',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  ) : null}
+                  <div style={{ marginBottom: '14px' }}>
+                    <label
+                      htmlFor="checkout-email"
+                      style={{
+                        display: 'block',
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        marginBottom: '6px',
+                      }}
+                    >
+                      Email Address (required)
+                    </label>
+                    <input
+                      id="checkout-email"
+                      type="email"
+                      placeholder="your@email.com"
+                      value={checkoutEmail}
+                      onChange={(event) => setCheckoutEmail(event.target.value)}
+                      disabled={isCheckingOut}
+                      required
+                      autoComplete="email"
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '1px solid #ddd',
+                        borderRadius: '6px',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
 
                   <p style={{ fontWeight: 800, fontSize: '1.05rem', margin: '0 0 16px' }}>
                     Total: {formatCents(Math.max(0, totalCents - promoDiscountCents))}
@@ -937,39 +892,6 @@ export default function SessionClipGrid({
                     </div>
                   ) : null}
 
-                  {isCartAllFree ? (
-                    <div style={{ marginBottom: '14px' }}>
-                      <label
-                        htmlFor="checkout-email"
-                        style={{
-                          display: 'block',
-                          fontSize: '0.9rem',
-                          fontWeight: 600,
-                          marginBottom: '6px',
-                        }}
-                      >
-                        Email Address (required)
-                      </label>
-                      <input
-                        id="checkout-email"
-                        type="email"
-                        placeholder="your@email.com"
-                        value={checkoutEmail}
-                        onChange={(event) => setCheckoutEmail(event.target.value)}
-                        disabled={isCheckingOut}
-                        required
-                        autoComplete="email"
-                        style={{
-                          width: '100%',
-                          padding: '10px',
-                          border: '1px solid #ddd',
-                          borderRadius: '6px',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  ) : null}
-
                   <div style={{ display: 'grid', gap: '10px' }}>
                     <button
                       type="button"
@@ -978,11 +900,7 @@ export default function SessionClipGrid({
                       className="checkout-button"
                       style={{ opacity: isCheckingOut ? 0.6 : 1 }}
                     >
-                      {isCheckingOut
-                        ? 'Processing...'
-                        : isCartAllFree
-                          ? 'Complete Free Checkout'
-                          : 'Checkout'}
+                      {isCheckingOut ? 'Processing...' : 'Checkout'}
                     </button>
                     <button
                       type="button"

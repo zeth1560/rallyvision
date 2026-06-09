@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
+      payment_method_collection: 'if_required',
       customer_email: buildOptions.customerEmail ?? undefined,
       line_items: checkout.lineItems,
       success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -66,27 +67,6 @@ export async function POST(request: NextRequest) {
     }
 
     const message = error instanceof Error ? error.message : 'Checkout failed';
-
-    if (message === 'MIXED_CART_NOT_SUPPORTED') {
-      return NextResponse.json(
-        {
-          error: 'Please check out free and paid clips separately',
-          errorCode: 'MIXED_CART_NOT_SUPPORTED',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (message === 'FREE_CART_MUST_USE_FREE_CHECKOUT') {
-      return NextResponse.json(
-        {
-          error: 'Free clips must be checked out using the free checkout flow',
-          errorCode: 'FREE_CART_MUST_USE_FREE_CHECKOUT',
-          redirect_to: '/api/checkout/free',
-        },
-        { status: 400 }
-      );
-    }
 
     console.error('create-cart-checkout-session error:', error);
 
