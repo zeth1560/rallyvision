@@ -19,7 +19,11 @@ import {
   getTotalDiscountCents,
   recordPromoRedemption,
 } from '@/lib/commerce/promo';
-import { normalizeCheckoutEmail } from '@/lib/commerce/purchase-validation';
+import {
+  loadActiveAccessByEmailAndClips,
+  normalizeCheckoutEmail,
+} from '@/lib/commerce/purchase-validation';
+import { hasVideoBaseAccess } from '@/lib/commerce/entitlements';
 import {
   completeCheckoutFulfillment,
   failCheckoutFulfillment,
@@ -134,10 +138,55 @@ export async function fulfillStripeCheckoutSession({
   }
 
   const clipRows = purchasedClips as PurchasedClipRow[];
+
+  const hdAccessClipIds = new Set<string>();
+  if (initialClipIds.length > 0) {
+    const accessByClipId = await loadActiveAccessByEmailAndClips(
+      normalizedEmail,
+      initialClipIds
+    );
+
+    for (const clipId of initialClipIds) {
+      const clip = clipRows.find((row) => row.id === clipId);
+      const access = accessByClipId.get(clipId);
+
+      if (clip && access && hasVideoBaseAccess(access, clip)) {
+        hdAccessClipIds.add(clipId);
+      }
+    }
+  }
+
+  if (
+    playerTroveAccessId &&
+    initialClipIds.length === 1 &&
+    !hdAccessClipIds.has(initialClipIds[0])
+  ) {
+    const { data: targetedAccess } = await supabaseAdmin
+      .from('player_video_access')
+      .select(
+        'id, clip_id, clip_download_purchased_at, hd_download_purchased_at, download_expires_at'
+      )
+      .eq('id', playerTroveAccessId)
+      .eq('email', normalizedEmail)
+      .eq('clip_id', initialClipIds[0])
+      .eq('access_status', 'active')
+      .maybeSingle();
+
+    const targetedClip = clipRows.find((row) => row.id === initialClipIds[0]);
+    if (
+      targetedAccess &&
+      targetedClip &&
+      hasVideoBaseAccess(targetedAccess, targetedClip)
+    ) {
+      hdAccessClipIds.add(initialClipIds[0]);
+    }
+  }
+
   const normalized = normalizeCheckoutCart({
     parsed,
     clips: clipRows,
     sessionClips,
+    hdAccessClipIds,
   });
 
   if (normalized.lines.length === 0) {

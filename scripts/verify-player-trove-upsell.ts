@@ -6,6 +6,8 @@ import {
   resolveUpsellOffers,
   validateUpsellPurchaseRequest,
 } from '../lib/commerce/player-trove-upsell';
+import { normalizeCheckoutCart } from '../lib/commerce/cart-normalize';
+import type { ProductType } from '../lib/commerce/products';
 
 const futureExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const pastExpiry = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -144,6 +146,47 @@ assert(
       },
     }
   ).find((offer) => offer.product === 'pb_vision')?.status === 'purchased'
+);
+
+const upsellParsedCart = {
+  version: 1 as const,
+  bookingId: 'booking-1',
+  sessionBundle: false,
+  lines: [{ clipId: 'clip-1', products: ['pb_vision'] as ProductType[] }],
+  legacyClipIds: [],
+  source: 'cartJson' as const,
+};
+
+const upsellClip = {
+  id: 'clip-1',
+  duration_seconds: 400,
+  booking_id: 'booking-1',
+  club_id: null,
+  court_id: null,
+};
+
+const upsellWithoutHdHint = normalizeCheckoutCart({
+  parsed: upsellParsedCart,
+  clips: [upsellClip],
+  sessionClips: [],
+});
+
+assert(
+  'player trove pb vision upsell is stripped during fulfillment without hd access hint',
+  upsellWithoutHdHint.lines.length === 0
+);
+
+const upsellWithHdHint = normalizeCheckoutCart({
+  parsed: upsellParsedCart,
+  clips: [upsellClip],
+  sessionClips: [],
+  hdAccessClipIds: new Set(['clip-1']),
+});
+
+assert(
+  'player trove pb vision upsell is kept during fulfillment with hd access hint',
+  upsellWithHdHint.lines.length === 1 &&
+    upsellWithHdHint.lines[0].productType === 'pb_vision'
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

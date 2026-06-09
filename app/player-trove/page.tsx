@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import PlayerTroveContent from '@/app/player-trove/PlayerTroveContent';
+import { retryPendingCheckoutFulfillmentsForEmail } from '@/lib/commerce/fulfillment-retry';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
 import {
   PLAYER_TROVE_TOKEN_COOKIE,
@@ -9,7 +10,12 @@ import {
 export const dynamic = 'force-dynamic';
 
 type PlayerTrovePageProps = {
-  searchParams: Promise<{ token?: string; email?: string; purchased?: string }>;
+  searchParams: Promise<{
+    token?: string;
+    email?: string;
+    purchased?: string;
+    session_id?: string;
+  }>;
 };
 
 export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageProps) {
@@ -35,6 +41,12 @@ export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageP
 
   if (auth.ok) {
     try {
+      if (params.purchased === '1') {
+        await retryPendingCheckoutFulfillmentsForEmail(auth.email, {
+          sessionId: params.session_id ?? null,
+        });
+      }
+
       initialData = await fetchPlayerTroveVideosForEmail(auth.email);
     } catch {
       initialError = 'Failed to fetch access records';
@@ -53,6 +65,7 @@ export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageP
       queryToken={params.token ?? null}
       email={params.email ?? null}
       purchased={params.purchased ?? null}
+      checkoutSessionId={params.session_id ?? null}
       serverNow={serverNow}
     />
   );

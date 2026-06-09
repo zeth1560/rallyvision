@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
+import { retryPendingCheckoutFulfillmentsForEmail } from '@/lib/commerce/fulfillment-retry';
 import { autoSubmitPendingPbVisionPurchases } from '@/lib/pb-vision-request';
 import {
   PLAYER_TROVE_TOKEN_COOKIE,
@@ -21,6 +22,15 @@ export async function GET(request: NextRequest) {
   });
 
   try {
+    if (
+      searchParams.get('purchased') === '1' ||
+      searchParams.get('session_id')?.trim()
+    ) {
+      await retryPendingCheckoutFulfillmentsForEmail(auth.email, {
+        sessionId: searchParams.get('session_id'),
+      });
+    }
+
     let result = await fetchPlayerTroveVideosForEmail(auth.email);
 
     await autoSubmitPendingPbVisionPurchases({

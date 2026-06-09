@@ -855,6 +855,7 @@ export default function PlayerTroveContent({
   queryToken = null,
   email = null,
   purchased = null,
+  checkoutSessionId = null,
   serverNow,
 }: {
   initialData?: ApiResponse | null;
@@ -863,6 +864,7 @@ export default function PlayerTroveContent({
   queryToken?: string | null;
   email?: string | null;
   purchased?: string | null;
+  checkoutSessionId?: string | null;
   serverNow?: string;
 }) {
   const [hashToken, setHashToken] = useState<string | null>(null);
@@ -882,14 +884,25 @@ export default function PlayerTroveContent({
   const token = queryToken || hashToken;
 
   const apiUrl = useMemo(() => {
+    const params = new URLSearchParams();
+
     if (token) {
-      return `/api/player-trove?token=${encodeURIComponent(token)}`;
+      params.set('token', token);
+    } else if (email) {
+      params.set('email', email);
     }
-    if (email) {
-      return `/api/player-trove?email=${encodeURIComponent(email)}`;
+
+    if (purchased === '1') {
+      params.set('purchased', '1');
     }
-    return '/api/player-trove';
-  }, [token, email]);
+
+    if (checkoutSessionId) {
+      params.set('session_id', checkoutSessionId);
+    }
+
+    const query = params.toString();
+    return query ? `/api/player-trove?${query}` : '/api/player-trove';
+  }, [token, email, purchased, checkoutSessionId]);
 
   const hasUrlAuth = Boolean(token || email);
 

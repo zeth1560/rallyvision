@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
       mode: 'payment',
       customer_email: viewerEmail,
       line_items: checkout.lineItems,
-      success_url: `${appUrl}/player-trove?${returnParams}&purchased=1`,
+      success_url: `${appUrl}/player-trove?${returnParams}&purchased=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/player-trove?${returnParams}`,
       metadata: checkout.metadata,
     });
