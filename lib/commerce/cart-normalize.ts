@@ -159,10 +159,13 @@ export function normalizeCheckoutCart({
   parsed,
   clips,
   sessionClips,
+  hdAccessClipIds,
 }: {
   parsed: ParsedCheckoutCart;
   clips: ClipCartContext[];
   sessionClips: ClipCartContext[];
+  /** Clips where the buyer already has HD/base video access (PlayerTrove upsells). */
+  hdAccessClipIds?: Set<string>;
 }): NormalizedCheckoutCart {
   const clipsById = new Map(clips.map((clip) => [clip.id, clip]));
   const sessionClipsById = new Map(sessionClips.map((clip) => [clip.id, clip]));
@@ -229,6 +232,7 @@ export function normalizeCheckoutCart({
         const hdSatisfied =
           hasHdOrBundleBase ||
           products.includes('full_game_hd') ||
+          hdAccessClipIds?.has(line.clipId) ||
           (baseProduct === 'full_game_hd' &&
             parsed.sessionBundle &&
             clip.booking_id === parsed.bookingId);

@@ -169,10 +169,12 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    const appUrl =
+    const appUrl = (
+      process.env.NEXT_PUBLIC_BASE_URL ||
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.NEXT_PUBLIC_SITE_URL ||
-      'http://localhost:3000';
+      'http://localhost:3000'
+    ).replace(/\/$/, '');
 
     const returnParams = token
       ? `token=${encodeURIComponent(token)}`
@@ -210,7 +212,12 @@ export async function POST(request: NextRequest) {
     console.error('[PlayerTrove Checkout] error:', error);
 
     return NextResponse.json(
-      { error: 'Failed to create checkout session' },
+      {
+        error:
+          message === 'Checkout failed'
+            ? 'Failed to create checkout session'
+            : message,
+      },
       { status: 500 }
     );
   }

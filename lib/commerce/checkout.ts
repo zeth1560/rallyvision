@@ -23,7 +23,9 @@ import {
   type CheckoutPriceLine,
   validatePromoCodeForCheckout,
 } from '@/lib/commerce/promo';
+import { hasVideoBaseAccess } from '@/lib/commerce/entitlements';
 import {
+  loadActiveAccessByEmailAndClips,
   normalizeCheckoutEmail,
   PurchaseValidationError,
   validateNormalizedCartPurchases,
@@ -259,10 +261,29 @@ export async function buildStripeCheckoutFromRequest(
     throw new Error('No purchasable clips were found.');
   }
 
+  const hdAccessClipIds = new Set<string>();
+
+  if (customerEmail && initialClipIds.length > 0) {
+    const accessByClipId = await loadActiveAccessByEmailAndClips(
+      customerEmail,
+      initialClipIds
+    );
+
+    for (const clipId of initialClipIds) {
+      const clip = clips.find((row) => row.id === clipId);
+      const access = accessByClipId.get(clipId);
+
+      if (clip && access && hasVideoBaseAccess(access, clip)) {
+        hdAccessClipIds.add(clipId);
+      }
+    }
+  }
+
   const normalized = normalizeCheckoutCart({
     parsed: parsedCart,
     clips,
     sessionClips,
+    hdAccessClipIds,
   });
 
   if (normalized.lines.length === 0 && !normalized.sessionBundle) {
