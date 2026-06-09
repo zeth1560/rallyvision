@@ -309,3 +309,46 @@ export async function sendPbVisionRefundEmail({
 
   return data;
 }
+
+export async function sendProReviewCompletedEmail({
+  to,
+  clipLabel,
+  reviewerLink,
+}: {
+  to: string;
+  clipLabel: string;
+  reviewerLink: string;
+}) {
+  const configIssues = getPlayerTroveEmailConfigIssues();
+  if (configIssues.length > 0) {
+    throw new Error(describePlayerTroveEmailConfigIssues(configIssues));
+  }
+
+  const playerTroveUrl = buildPlayerTroveMagicLinkUrl(to);
+  const troveSection = playerTroveAccessSectionHtml(playerTroveUrl);
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.EMAIL_FROM!,
+    to,
+    subject: 'Your Pro Review is ready',
+    html: wrapEmailBody(`
+      <h1 style="margin-top: 0;">Your Pro Review is ready</h1>
+      <p>
+        Your coach review for <strong>${clipLabel}</strong> is complete.
+      </p>
+      <p>
+        <a href="${reviewerLink}">View your Pro Review</a>
+      </p>
+      ${troveSection}
+      <p style="color: #666; font-size: 14px;">
+        You can also open PlayerTrove anytime to access your review from your video library.
+      </p>
+    `),
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to send Pro Review completion email');
+  }
+
+  return data;
+}

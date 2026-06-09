@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
+import ProReviewRequestEditor from '@/app/admin/pro-review-requests/ProReviewRequestEditor';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { formatDateInTimezone } from '@/lib/formatDate';
 import { createSignedObjectUrl } from '@/lib/s3';
@@ -41,6 +42,11 @@ type ProReviewRequestRow = {
   player_names: Record<string, string> | null;
   assigned_reviewer_email: string | null;
   reviewer_link: string | null;
+  reviewer_notes: string | null;
+  assigned_at: string | null;
+  failed_at: string | null;
+  failure_reason: string | null;
+  completed_email_sent_at: string | null;
   submitted_at: string | null;
   ready_for_reviewer_at: string | null;
   completed_at: string | null;
@@ -148,6 +154,11 @@ export default async function AdminProReviewRequestsPage({
       player_names,
       assigned_reviewer_email,
       reviewer_link,
+      reviewer_notes,
+      assigned_at,
+      failed_at,
+      failure_reason,
+      completed_email_sent_at,
       submitted_at,
       ready_for_reviewer_at,
       completed_at,
@@ -201,7 +212,7 @@ export default async function AdminProReviewRequestsPage({
   return (
     <ReplayTrovePageShell
       title="Pro Review Requests"
-      subtitle="View PlayerTrove Pro Review submission status."
+      subtitle="Manage PlayerTrove Pro Review requests and fulfillment."
       maxWidth="1400px"
     >
       <div
@@ -356,6 +367,18 @@ export default async function AdminProReviewRequestsPage({
                     <div>
                       <strong>Completed:</strong> {formatTimestamp(request.completed_at)}
                     </div>
+                    <div>
+                      <strong>Completion email sent:</strong>{' '}
+                      {formatTimestamp(request.completed_email_sent_at)}
+                    </div>
+                    <div>
+                      <strong>Assigned at:</strong> {formatTimestamp(request.assigned_at)}
+                    </div>
+                    {request.failed_at ? (
+                      <div>
+                        <strong>Failed at:</strong> {formatTimestamp(request.failed_at)}
+                      </div>
+                    ) : null}
                     <div style={{ wordBreak: 'break-all' }}>
                       <strong>Source S3 key:</strong> {request.source_s3_key || '—'}
                     </div>
@@ -370,6 +393,18 @@ export default async function AdminProReviewRequestsPage({
                       {request.assigned_reviewer_email || '—'}
                     </div>
                   </div>
+
+                  {request.reviewer_notes ? (
+                    <div style={{ marginTop: '12px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                      <strong>Reviewer notes:</strong> {request.reviewer_notes}
+                    </div>
+                  ) : null}
+
+                  {request.failure_reason ? (
+                    <div style={{ marginTop: '8px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                      <strong>Failure reason:</strong> {request.failure_reason}
+                    </div>
+                  ) : null}
 
                   {request.focus_notes ? (
                     <div style={{ marginTop: '12px', fontSize: '0.9rem', lineHeight: 1.5 }}>
@@ -433,10 +468,28 @@ export default async function AdminProReviewRequestsPage({
                         rel="noopener noreferrer"
                         style={primaryButton}
                       >
-                        View Pro Review
+                        Open reviewer link
                       </a>
                     </div>
                   ) : null}
+
+                  <ProReviewRequestEditor
+                    request={{
+                      id: request.id,
+                      status: request.status,
+                      assigned_reviewer_email: request.assigned_reviewer_email,
+                      reviewer_link: request.reviewer_link,
+                      reviewer_notes: request.reviewer_notes,
+                      assigned_at: formatTimestamp(request.assigned_at),
+                      completed_at: formatTimestamp(request.completed_at),
+                      completed_email_sent_at: request.completed_email_sent_at,
+                      failed_at: request.failed_at
+                        ? formatTimestamp(request.failed_at)
+                        : null,
+                      failure_reason: request.failure_reason,
+                    }}
+                    clipLabel={label}
+                  />
                 </div>
               );
             })}
