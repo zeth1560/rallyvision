@@ -268,29 +268,41 @@ export async function validateNormalizedCartPurchases({
     clipIds
   );
 
+  const productsByClipId = new Map<string, ProductType[]>();
   for (const line of billableLines) {
-    const clip = clipsById.get(line.clipId);
+    const existing = productsByClipId.get(line.clipId) ?? [];
+    existing.push(line.productType);
+    productsByClipId.set(line.clipId, existing);
+  }
+
+  for (const [clipId, requestedProducts] of productsByClipId) {
+    const clip = clipsById.get(clipId);
     if (!clip) {
       continue;
     }
 
-    const access = accessByClipId.get(line.clipId) ?? {};
-    const productCheck = validateProductNotAlreadyPurchased(
-      access,
-      clip,
-      line.productType
-    );
+    const access = accessByClipId.get(clipId) ?? {};
 
-    if (!productCheck.ok) {
-      throw new PurchaseValidationError(
-        'PRODUCT_ALREADY_PURCHASED',
-        productCheck.error
+    for (const product of requestedProducts) {
+      const productCheck = validateProductNotAlreadyPurchased(
+        access,
+        clip,
+        product
       );
+
+      if (!productCheck.ok) {
+        throw new PurchaseValidationError(
+          'PRODUCT_ALREADY_PURCHASED',
+          productCheck.error
+        );
+      }
     }
 
-    const addonCheck = validateUpsellAddonRequirements(access, clip, [
-      line.productType,
-    ]);
+    const addonCheck = validateUpsellAddonRequirements(
+      access,
+      clip,
+      requestedProducts
+    );
 
     if (!addonCheck.ok) {
       throw new PurchaseValidationError(
