@@ -197,6 +197,18 @@ function productLineItemName(
   return promoApplied ? `${baseName} (promo)` : baseName;
 }
 
+function isFreeClipDownloadLine(line: CheckoutPriceLine) {
+  return line.productType === 'clip_download' && line.originalAmountCents === 0;
+}
+
+function hasPaidCheckoutLines(priceLines: CheckoutPriceLine[]) {
+  return priceLines.some((line) => line.originalAmountCents > 0);
+}
+
+function hasFreeClipDownloadLines(priceLines: CheckoutPriceLine[]) {
+  return priceLines.some(isFreeClipDownloadLine);
+}
+
 export async function buildStripeCheckoutFromRequest(
   request: ParsedCheckoutRequest,
   options: CheckoutBuildOptions = {}
@@ -380,17 +392,13 @@ export async function buildStripeCheckoutFromRequest(
     });
   }
 
-  const naturallyFreeLines = priceLines.filter(
-    (line) => line.originalAmountCents === 0
-  );
-  const naturallyPaidLines = priceLines.filter(
-    (line) => line.originalAmountCents > 0
-  );
+  const naturallyFreeClipDownloads = priceLines.filter(isFreeClipDownloadLine);
+  const hasPaidLines = hasPaidCheckoutLines(priceLines);
 
   if (
     !promoApplied &&
-    naturallyFreeLines.length > 0 &&
-    naturallyPaidLines.length > 0
+    naturallyFreeClipDownloads.length > 0 &&
+    hasPaidLines
   ) {
     throw new Error('MIXED_CART_NOT_SUPPORTED');
   }
