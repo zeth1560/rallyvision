@@ -16,6 +16,12 @@ import {
   buildUpsellCartPayload,
   validateUpsellPurchaseRequest,
 } from '@/lib/commerce/player-trove-upsell';
+import {
+  applyPaidPbVisionPurchaseToAccessRow,
+  loadPaidPbVisionPurchasesForClips,
+  repairMissingPbVisionEntitlement,
+} from '@/lib/commerce/pb-vision-entitlements';
+import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { isProductType, type ProductType } from '@/lib/commerce/products';
 import type { AccessEntitlementRow } from '@/lib/commerce/entitlements';
 
@@ -134,8 +140,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Clip is not available' }, { status: 400 });
     }
 
+    let accessForValidation = access;
+    if (products.includes('pb_vision') && !hasPbVisionPurchaseAccess(access)) {
+      const paidPbVisionByClipId = await loadPaidPbVisionPurchasesForClips(viewerEmail, [
+        access.clip_id,
+      ]);
+      const paidPurchase = paidPbVisionByClipId.get(access.clip_id);
+
+      if (paidPurchase) {
+        await repairMissingPbVisionEntitlement(access.id, paidPurchase);
+        accessForValidation = applyPaidPbVisionPurchaseToAccessRow(
+          access,
+          paidPurchase
+        );
+      }
+    }
+
     const validation = validateUpsellPurchaseRequest(
-      access,
+      accessForValidation,
       clip,
       products
     );

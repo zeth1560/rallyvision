@@ -2,6 +2,12 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createSignedObjectUrl } from '@/lib/s3';
 import { resolveProductPrice } from '@/lib/pricing';
 import { resolveBaseProductForClip } from '@/lib/commerce/products';
+import {
+  applyPaidPbVisionPurchaseToAccessRow,
+  loadPaidPbVisionPurchasesForClips,
+  repairMissingPbVisionEntitlement,
+} from '@/lib/commerce/pb-vision-entitlements';
+import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { resolveUpsellOffers } from '@/lib/commerce/player-trove-upsell';
 
 function getThumbnailContentType(key: string) {
@@ -239,6 +245,24 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
   const canonicalAccessRecords = canonicalizeAccessRecords(
     (accessRecords ?? []) as PlayerVideoAccessRow[]
   );
+
+  const clipIds = [
+    ...new Set(canonicalAccessRecords.map((record) => record.clip_id)),
+  ];
+  const paidPbVisionByClipId = await loadPaidPbVisionPurchasesForClips(
+    normalizedEmail,
+    clipIds
+  );
+
+  for (const record of canonicalAccessRecords) {
+    const paidPurchase = paidPbVisionByClipId.get(record.clip_id);
+    if (!paidPurchase || hasPbVisionPurchaseAccess(record)) {
+      continue;
+    }
+
+    applyPaidPbVisionPurchaseToAccessRow(record, paidPurchase);
+    await repairMissingPbVisionEntitlement(record.id, paidPurchase);
+  }
 
   const clipRows = canonicalAccessRecords
     .map((record) => normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null))

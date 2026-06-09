@@ -75,6 +75,53 @@ function textInputStyle() {
   };
 }
 
+function IdentificationFrame({
+  frameUrl,
+  selectedPosition,
+}: {
+  frameUrl: string | null;
+  selectedPosition?: BuyerPosition | null;
+}) {
+  if (!frameUrl) {
+    return (
+      <div style={{ padding: '24px', textAlign: 'center', color: '#666' }}>
+        Loading identification frame...
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        borderRadius: '10px',
+        overflow: 'hidden',
+        border: '1px solid #dedede',
+        background: '#f5f5f5',
+      }}
+    >
+      <img
+        src={frameUrl}
+        alt="Player identification frame"
+        style={{ width: '100%', display: 'block' }}
+      />
+      {selectedPosition ? (
+        <p
+          style={{
+            margin: 0,
+            padding: '10px 12px',
+            fontSize: '13px',
+            color: '#444',
+            background: '#ffffff',
+            borderTop: '1px solid #dedede',
+          }}
+        >
+          You selected <strong>{POSITION_LABELS[selectedPosition]}</strong>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ProReviewRequestModal({
   video,
   token,
@@ -367,26 +414,7 @@ export default function ProReviewRequestModal({
             <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
               Which player are you in this frame?
             </p>
-            {frameUrl ? (
-              <div
-                style={{
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                  border: '1px solid #dedede',
-                  background: '#f5f5f5',
-                }}
-              >
-                <img
-                  src={frameUrl}
-                  alt="Player identification frame"
-                  style={{ width: '100%', display: 'block' }}
-                />
-              </div>
-            ) : (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#666' }}>
-                Loading identification frame...
-              </div>
-            )}
+            <IdentificationFrame frameUrl={frameUrl} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               {BUYER_POSITIONS.map((position) => (
                 <button
@@ -444,9 +472,9 @@ export default function ProReviewRequestModal({
         {step === 3 && buyerPosition ? (
           <div style={{ marginTop: '20px', display: 'grid', gap: '16px' }}>
             <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
-              You selected <strong>{POSITION_LABELS[buyerPosition]}</strong>. Enter names for the
-              other players (optional).
+              Enter names for the other players based on their court position (optional).
             </p>
+            <IdentificationFrame frameUrl={frameUrl} selectedPosition={buyerPosition} />
             {otherPositions().map((position) => (
               <div key={position}>
                 {fieldLabel(`${POSITION_LABELS[position]} player name`)}
@@ -541,17 +569,7 @@ export default function ProReviewRequestModal({
                 ) : null
               )}
             </div>
-            {frameUrl ? (
-              <img
-                src={frameUrl}
-                alt="Selected identification frame"
-                style={{
-                  width: '100%',
-                  borderRadius: '10px',
-                  border: '1px solid #dedede',
-                }}
-              />
-            ) : null}
+            <IdentificationFrame frameUrl={frameUrl} selectedPosition={buyerPosition} />
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button
                 type="button"
