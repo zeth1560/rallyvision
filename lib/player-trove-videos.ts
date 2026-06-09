@@ -9,6 +9,7 @@ import {
 } from '@/lib/commerce/pb-vision-entitlements';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { resolveUpsellOffers } from '@/lib/commerce/player-trove-upsell';
+import { getFeatureFlags } from '@/lib/feature-flags';
 
 function getThumbnailContentType(key: string) {
   const lower = key.toLowerCase();
@@ -204,6 +205,11 @@ async function fetchNameMap(table: 'clubs' | 'courts', ids: string[]) {
 
 export async function fetchPlayerTroveVideosForEmail(email: string) {
   const normalizedEmail = email.toLowerCase().trim();
+  const featureFlags = await getFeatureFlags();
+  const upsellFeatureFlags = {
+    pbVisionCustomerEnabled: featureFlags.pb_vision_customer,
+    coachReviewCustomerEnabled: featureFlags.coach_review_customer,
+  };
 
   const { data: accessRecords, error } = await supabaseAdmin
     .from('player_video_access')
@@ -397,6 +403,7 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
                   refund_status: pbVision.refund_status,
                 }
               : null,
+            featureFlags: upsellFeatureFlags,
           })
         : [];
 

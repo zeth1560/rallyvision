@@ -38,12 +38,18 @@ export type UpsellPricing = {
   coachReviewPriceCents: number;
 };
 
+export type UpsellFeatureFlags = {
+  pbVisionCustomerEnabled?: boolean;
+  coachReviewCustomerEnabled?: boolean;
+};
+
 export function resolveUpsellOffers(
   access: AccessEntitlementRow,
   clip: { duration_seconds?: number | null },
   pricing: UpsellPricing,
   options?: {
     pbVisionRequest?: PbVisionRequestPurchaseHint | null;
+    featureFlags?: UpsellFeatureFlags;
   }
 ): UpsellOffer[] {
   const baseProduct = resolveBaseProductForClip(clip);
@@ -79,6 +85,15 @@ export function resolveUpsellOffers(
         ? pricing.pbVisionPriceCents
         : pricing.coachReviewPriceCents;
 
+    const featureEnabled =
+      addon === 'pb_vision'
+        ? options?.featureFlags?.pbVisionCustomerEnabled ?? true
+        : options?.featureFlags?.coachReviewCustomerEnabled ?? true;
+
+    if (!purchased && !featureEnabled) {
+      continue;
+    }
+
     let status: UpsellProductStatus;
     if (purchased) {
       status = 'purchased';
@@ -102,7 +117,10 @@ export function resolveUpsellOffers(
 export function validateUpsellPurchaseRequest(
   access: AccessEntitlementRow,
   clip: { duration_seconds?: number | null },
-  requestedProducts: ProductType[]
+  requestedProducts: ProductType[],
+  options?: {
+    featureFlags?: UpsellFeatureFlags;
+  }
 ): { ok: true; products: ProductType[] } | { ok: false; error: string } {
   if (requestedProducts.length === 0) {
     return { ok: false, error: 'At least one product is required.' };
@@ -117,6 +135,17 @@ export function validateUpsellPurchaseRequest(
   for (const product of uniqueProducts) {
     if (!isProductType(product) || product === 'session_bundle') {
       return { ok: false, error: `Invalid product: ${product}` };
+    }
+
+    if (product === 'pb_vision' && options?.featureFlags?.pbVisionCustomerEnabled === false) {
+      return { ok: false, error: 'PB Vision is temporarily unavailable.' };
+    }
+
+    if (
+      product === 'coach_review' &&
+      options?.featureFlags?.coachReviewCustomerEnabled === false
+    ) {
+      return { ok: false, error: 'Pro Review is temporarily unavailable.' };
     }
   }
 

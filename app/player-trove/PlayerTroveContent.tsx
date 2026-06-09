@@ -4,7 +4,6 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
-import { COACH_REVIEW_CUSTOMER_ENABLED, YOUTUBE_CUSTOMER_ENABLED } from '@/lib/commerce/products';
 import { formatDuration } from '@/lib/format';
 import {
   hasPbVisionRefund,
@@ -282,6 +281,8 @@ type VideoCardProps = {
   purchaseLoadingKey: string | null;
   purchaseError: string | undefined;
   onPurchase: (accessId: string, products: string[]) => void;
+  coachReviewCustomerEnabled: boolean;
+  youtubeCustomerEnabled: boolean;
 };
 
 function VideoCard({
@@ -300,6 +301,8 @@ function VideoCard({
   purchaseLoadingKey,
   purchaseError,
   onPurchase,
+  coachReviewCustomerEnabled,
+  youtubeCustomerEnabled,
 }: VideoCardProps) {
   const baseAccess = hasPurchasedBaseAccess(video);
   const downloadExpired =
@@ -438,18 +441,11 @@ function VideoCard({
           </div>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '8px' }}>
             {video.upsell_offers.map((offer) => {
-              const isCoachReviewComingSoon =
-                offer.product === 'coach_review' && !COACH_REVIEW_CUSTOMER_ENABLED;
-              const statusStyle = isCoachReviewComingSoon
-                ? { color: '#6c757d', background: '#e9ecef' }
-                : getUpsellStatusStyle(offer.status);
-              const statusLabel = isCoachReviewComingSoon
-                ? 'Coming soon'
-                : getUpsellStatusLabel(offer.status);
+              const statusStyle = getUpsellStatusStyle(offer.status);
+              const statusLabel = getUpsellStatusLabel(offer.status);
               const loadingKey = `${video.access_id}:${offer.product}`;
               const isLoading = purchaseLoadingKey === loadingKey;
-              const canPurchase =
-                offer.status === 'available' && !isCoachReviewComingSoon;
+              const canPurchase = offer.status === 'available';
 
               return (
                 <li
@@ -465,11 +461,9 @@ function VideoCard({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '13px', fontWeight: 600 }}>{offer.label}</div>
                     <div style={{ fontSize: '12px', color: '#666' }}>
-                      {isCoachReviewComingSoon
-                        ? 'Available soon'
-                        : offer.status === 'available'
-                          ? formatCents(offer.price_cents)
-                          : statusLabel}
+                      {offer.status === 'available'
+                        ? formatCents(offer.price_cents)
+                        : statusLabel}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -502,23 +496,6 @@ function VideoCard({
                         }}
                       >
                         {isLoading ? 'Starting...' : 'Purchase'}
-                      </button>
-                    ) : isCoachReviewComingSoon ? (
-                      <button
-                        type="button"
-                        disabled
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: '8px',
-                          border: 'none',
-                          background: '#ccc',
-                          color: '#666',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          cursor: 'not-allowed',
-                        }}
-                      >
-                        Coming soon
                       </button>
                     ) : null}
                   </div>
@@ -559,26 +536,26 @@ function VideoCard({
       >
         <button
           type="button"
-          disabled={!YOUTUBE_CUSTOMER_ENABLED || !youtubeReady}
+          disabled={!youtubeCustomerEnabled || !youtubeReady}
           style={{
             padding: '8px 12px',
             borderRadius: '8px',
             border: 'none',
             background:
-              YOUTUBE_CUSTOMER_ENABLED && youtubeReady ? '#ff0000' : '#ccc',
-            color: YOUTUBE_CUSTOMER_ENABLED && youtubeReady ? 'white' : '#666',
+              youtubeCustomerEnabled && youtubeReady ? '#ff0000' : '#ccc',
+            color: youtubeCustomerEnabled && youtubeReady ? 'white' : '#666',
             cursor:
-              YOUTUBE_CUSTOMER_ENABLED && youtubeReady ? 'pointer' : 'not-allowed',
+              youtubeCustomerEnabled && youtubeReady ? 'pointer' : 'not-allowed',
             fontSize: '13px',
           }}
           onClick={() => {
-            if (YOUTUBE_CUSTOMER_ENABLED && youtubeReady) {
+            if (youtubeCustomerEnabled && youtubeReady) {
               window.open(video.youtube_url!, '_blank');
             }
           }}
         >
-          {!YOUTUBE_CUSTOMER_ENABLED
-            ? 'YouTube (Coming soon)'
+          {!youtubeCustomerEnabled
+            ? 'YouTube (Unavailable)'
             : youtubeReady
               ? 'YouTube'
               : 'YouTube N/A'}
@@ -641,23 +618,57 @@ function VideoCard({
             </button>
         ) : null}
 
-        {showAdvancedActions && !COACH_REVIEW_CUSTOMER_ENABLED ? (
+        {showAdvancedActions && coachReviewPurchased && !coachReviewCustomerEnabled ? (
           <button
             type="button"
-            disabled
+            disabled={
+              coachReviewExpired ||
+              isProReviewLoading ||
+              proReviewSubmitted ||
+              (!proReviewCompleted && !isProReviewActionable(video, now))
+            }
             style={{
               padding: '8px 12px',
               borderRadius: '8px',
               border: 'none',
-              background: '#ccc',
-              color: '#666',
-              cursor: 'not-allowed',
+              background: proReviewCompleted
+                ? '#17a2b8'
+                : proReviewSubmitted
+                  ? '#6c757d'
+                  : coachReviewExpired
+                    ? '#ccc'
+                    : '#ffc107',
+              color: proReviewSubmitted || coachReviewExpired ? 'white' : 'black',
+              cursor:
+                proReviewCompleted ||
+                (!coachReviewExpired && !proReviewSubmitted && isProReviewActionable(video, now))
+                  ? 'pointer'
+                  : 'not-allowed',
+              opacity: isProReviewLoading ? 0.6 : 1,
               fontSize: '13px',
             }}
+            onClick={() => {
+              if (proReviewCompleted && video.pro_review_reviewer_link) {
+                window.open(video.pro_review_reviewer_link, '_blank');
+                return;
+              }
+
+              if (
+                !coachReviewExpired &&
+                !proReviewSubmitted &&
+                isProReviewActionable(video, now)
+              ) {
+                onProReview(video);
+              }
+            }}
           >
-            Pro Review (Coming soon)
+            {isProReviewLoading
+              ? 'Loading...'
+              : proReviewSubmitted
+                ? 'Pro Review in progress'
+                : proReviewLabel}
           </button>
-        ) : showAdvancedActions && coachReviewPurchased ? (
+        ) : showAdvancedActions && coachReviewPurchased && coachReviewCustomerEnabled ? (
           <button
             disabled={proReviewDisabled}
             style={{
@@ -784,6 +795,8 @@ type VideoSectionProps = {
   purchaseLoadingKey: string | null;
   purchaseErrors: Record<string, string>;
   onPurchase: (accessId: string, products: string[]) => void;
+  coachReviewCustomerEnabled: boolean;
+  youtubeCustomerEnabled: boolean;
 };
 
 function VideoSection({
@@ -804,6 +817,8 @@ function VideoSection({
   purchaseLoadingKey,
   purchaseErrors,
   onPurchase,
+  coachReviewCustomerEnabled,
+  youtubeCustomerEnabled,
 }: VideoSectionProps) {
   if (videos.length === 0) {
     return null;
@@ -841,6 +856,8 @@ function VideoSection({
             purchaseLoadingKey={purchaseLoadingKey}
             purchaseError={purchaseErrors[video.access_id]}
             onPurchase={onPurchase}
+            coachReviewCustomerEnabled={coachReviewCustomerEnabled}
+            youtubeCustomerEnabled={youtubeCustomerEnabled}
           />
         ))}
       </div>
@@ -857,6 +874,9 @@ export default function PlayerTroveContent({
   purchased = null,
   checkoutSessionId = null,
   serverNow,
+  coachReviewCustomerEnabled = true,
+  pbVisionCustomerEnabled = true,
+  youtubeCustomerEnabled = false,
 }: {
   initialData?: ApiResponse | null;
   initialShowAccessRequest?: boolean;
@@ -866,6 +886,9 @@ export default function PlayerTroveContent({
   purchased?: string | null;
   checkoutSessionId?: string | null;
   serverNow?: string;
+  coachReviewCustomerEnabled?: boolean;
+  pbVisionCustomerEnabled?: boolean;
+  youtubeCustomerEnabled?: boolean;
 }) {
   const [hashToken, setHashToken] = useState<string | null>(null);
   const serverLoadedRef = useRef(Boolean(initialData));
@@ -1351,6 +1374,8 @@ export default function PlayerTroveContent({
             purchaseLoadingKey={purchaseLoadingKey}
             purchaseErrors={purchaseErrors}
             onPurchase={handlePurchaseClick}
+            coachReviewCustomerEnabled={coachReviewCustomerEnabled}
+            youtubeCustomerEnabled={youtubeCustomerEnabled}
           />
 
           <VideoSection
@@ -1371,6 +1396,8 @@ export default function PlayerTroveContent({
             purchaseLoadingKey={purchaseLoadingKey}
             purchaseErrors={purchaseErrors}
             onPurchase={handlePurchaseClick}
+            coachReviewCustomerEnabled={coachReviewCustomerEnabled}
+            youtubeCustomerEnabled={youtubeCustomerEnabled}
           />
         </>
       )}

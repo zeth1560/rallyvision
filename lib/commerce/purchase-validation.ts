@@ -228,10 +228,15 @@ export async function validateNormalizedCartPurchases({
   email,
   normalized,
   clipsById,
+  featureFlags,
 }: {
   email: string;
   normalized: NormalizedCheckoutCart;
   clipsById: Map<string, ClipCartContext & { duration_seconds?: number | null }>;
+  featureFlags?: {
+    pbVisionCustomerEnabled?: boolean;
+    sessionCoachReviewAddonEnabled?: boolean;
+  };
 }): Promise<void> {
   const normalizedEmail = normalizeCheckoutEmail(email);
 
@@ -284,6 +289,26 @@ export async function validateNormalizedCartPurchases({
     const access = accessByClipId.get(clipId) ?? {};
 
     for (const product of requestedProducts) {
+      if (
+        product === 'pb_vision' &&
+        featureFlags?.pbVisionCustomerEnabled === false
+      ) {
+        throw new PurchaseValidationError(
+          'PRODUCT_UNAVAILABLE',
+          'PB Vision is temporarily unavailable.'
+        );
+      }
+
+      if (
+        product === 'coach_review' &&
+        featureFlags?.sessionCoachReviewAddonEnabled === false
+      ) {
+        throw new PurchaseValidationError(
+          'PRODUCT_UNAVAILABLE',
+          'Pro Review is temporarily unavailable.'
+        );
+      }
+
       const productCheck = validateProductNotAlreadyPurchased(
         access,
         clip,

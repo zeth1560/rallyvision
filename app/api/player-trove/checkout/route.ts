@@ -22,6 +22,7 @@ import {
   repairMissingPbVisionEntitlement,
 } from '@/lib/commerce/pb-vision-entitlements';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
+import { getFeatureFlags } from '@/lib/feature-flags';
 import { isProductType, type ProductType } from '@/lib/commerce/products';
 import type { AccessEntitlementRow } from '@/lib/commerce/entitlements';
 
@@ -156,10 +157,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const featureFlags = await getFeatureFlags();
+
     const validation = validateUpsellPurchaseRequest(
       accessForValidation,
       clip,
-      products
+      products,
+      {
+        featureFlags: {
+          pbVisionCustomerEnabled: featureFlags.pb_vision_customer,
+          coachReviewCustomerEnabled: featureFlags.coach_review_customer,
+        },
+      }
     );
 
     if (!validation.ok) {

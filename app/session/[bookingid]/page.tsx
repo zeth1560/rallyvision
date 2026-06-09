@@ -9,6 +9,7 @@ import {
   resolveSessionClipPricingList,
 } from '@/lib/commerce/session-pricing';
 import { calculateMinDaysRemaining } from '@/lib/calculateDaysRemaining';
+import { getFeatureFlags } from '@/lib/feature-flags';
 
 type ClipLookupRow = {
   recorded_at: string | null;
@@ -200,6 +201,7 @@ export default async function SessionPage({
   });
 
   const daysRemaining = calculateMinDaysRemaining(clipRows);
+  const featureFlags = await getFeatureFlags();
 
   return (
     <ReplayTrovePageShell title={bookingDisplay} subtitle={subtitle}>
@@ -210,6 +212,8 @@ export default async function SessionPage({
         bookingId={bookingid}
         bookingDisplay={bookingDisplay}
         daysRemaining={daysRemaining}
+        sessionCoachReviewAddonEnabled={featureFlags.session_coach_review_addon}
+        pbVisionCustomerEnabled={featureFlags.pb_vision_customer}
       />
     </ReplayTrovePageShell>
   );

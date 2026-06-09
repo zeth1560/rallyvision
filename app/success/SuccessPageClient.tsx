@@ -60,7 +60,15 @@ function isOrderFullGame(order: Order) {
   return duration != null && duration >= 5 * 60;
 }
 
-export default function SuccessPageClient() {
+type SuccessPageClientProps = {
+  coachReviewCustomerEnabled?: boolean;
+  pbVisionCustomerEnabled?: boolean;
+};
+
+export default function SuccessPageClient({
+  coachReviewCustomerEnabled = true,
+  pbVisionCustomerEnabled = true,
+}: SuccessPageClientProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [email, setEmail] = useState<string | null>(null);
   const [playerTrove, setPlayerTrove] = useState<PlayerTrovePayload | null>(null);
@@ -248,6 +256,13 @@ export default function SuccessPageClient() {
     video: PlayerTroveVideo,
     product: 'pb_vision' | 'coach_review'
   ) {
+    if (
+      (product === 'pb_vision' && !pbVisionCustomerEnabled) ||
+      (product === 'coach_review' && !coachReviewCustomerEnabled)
+    ) {
+      return;
+    }
+
     if (!playerTrove?.token) {
       setPurchaseErrors((prev) => ({
         ...prev,
@@ -426,6 +441,8 @@ export default function SuccessPageClient() {
                     purchaseLoadingKey={purchaseLoadingKey}
                     purchaseError={purchaseErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
                     proReviewError={proReviewErrors[troveByClipId.get(order.clip_id)?.access_id ?? '']}
+                    pbVisionCustomerEnabled={pbVisionCustomerEnabled}
+                    coachReviewCustomerEnabled={coachReviewCustomerEnabled}
                     onPbVisionPurchase={(video) => handleAddonPurchase(video, 'pb_vision')}
                     onProReviewPurchase={(video) => handleAddonPurchase(video, 'coach_review')}
                     onProReviewRequest={handleProReviewRequest}
@@ -478,8 +495,9 @@ export default function SuccessPageClient() {
                     key={video.access_id}
                     video={video}
                     token={playerTrove?.token}
-                    showPbVision
-                    showProReview
+                    showAddons
+                    pbVisionCustomerEnabled={pbVisionCustomerEnabled}
+                    coachReviewCustomerEnabled={coachReviewCustomerEnabled}
                     pbVisionError={pbVisionErrors[video.access_id]}
                     proReviewError={proReviewErrors[video.access_id]}
                     purchaseLoadingKey={purchaseLoadingKey}
@@ -523,6 +541,8 @@ function PurchasedClipCard({
   proReviewError,
   purchaseLoadingKey,
   purchaseError,
+  pbVisionCustomerEnabled = true,
+  coachReviewCustomerEnabled = true,
   onPbVisionPurchase,
   onProReviewPurchase,
   onProReviewRequest,
@@ -535,6 +555,8 @@ function PurchasedClipCard({
   proReviewError?: string;
   purchaseLoadingKey: string | null;
   purchaseError?: string;
+  pbVisionCustomerEnabled?: boolean;
+  coachReviewCustomerEnabled?: boolean;
   onPbVisionPurchase: (video: PlayerTroveVideo) => void;
   onProReviewPurchase: (video: PlayerTroveVideo) => void;
   onProReviewRequest: (video: PlayerTroveVideo) => void;
@@ -575,6 +597,7 @@ function PurchasedClipCard({
         <>
           <PbVisionSection
             video={troveVideo}
+            customerEnabled={pbVisionCustomerEnabled}
             pbVisionError={pbVisionError}
             purchaseLoadingKey={purchaseLoadingKey}
             purchaseError={purchaseError}
@@ -582,6 +605,7 @@ function PurchasedClipCard({
           />
           <ProReviewSection
             video={troveVideo}
+            customerEnabled={coachReviewCustomerEnabled}
             proReviewError={proReviewError}
             purchaseLoadingKey={purchaseLoadingKey}
             purchaseError={purchaseError}
@@ -596,12 +620,14 @@ function PurchasedClipCard({
 
 function PbVisionSection({
   video,
+  customerEnabled = true,
   pbVisionError,
   purchaseLoadingKey,
   purchaseError,
   onPbVisionPurchase,
 }: {
   video: PlayerTroveVideo;
+  customerEnabled?: boolean;
   pbVisionError?: string;
   purchaseLoadingKey: string | null;
   purchaseError?: string;
@@ -611,6 +637,10 @@ function PbVisionSection({
   const pbVisionOffer = getOffer(video, 'pb_vision');
   const purchased = hasPurchasedPbVision(video);
   const canPurchase = canPurchasePbVision(video);
+
+  if (!customerEnabled && !purchased) {
+    return null;
+  }
   const expired = purchased && isPbVisionExpired(video, now);
   const isPurchaseLoading = purchaseLoadingKey === `${video.access_id}:pb_vision`;
   const completed =
@@ -637,7 +667,7 @@ function PbVisionSection({
         <p style={{ margin: '10px 0 0', color: '#555', fontSize: '0.9rem' }}>
           We hit a delivery issue and are retrying automatically. No action is needed.
         </p>
-      ) : canPurchase && pbVisionOffer ? (
+      ) : canPurchase && customerEnabled && pbVisionOffer ? (
         <button
           type="button"
           disabled={isPurchaseLoading}
@@ -690,6 +720,7 @@ function PbVisionSection({
 
 function ProReviewSection({
   video,
+  customerEnabled = true,
   proReviewError,
   purchaseLoadingKey,
   purchaseError,
@@ -697,6 +728,7 @@ function ProReviewSection({
   onProReviewRequest,
 }: {
   video: PlayerTroveVideo;
+  customerEnabled?: boolean;
   proReviewError?: string;
   purchaseLoadingKey: string | null;
   purchaseError?: string;
@@ -707,6 +739,10 @@ function ProReviewSection({
   const proReviewOffer = getOffer(video, 'coach_review');
   const purchased = hasPurchasedProReview(video);
   const canPurchase = canPurchaseProReview(video);
+
+  if (!customerEnabled && !purchased) {
+    return null;
+  }
   const expired = purchased && isProReviewExpired(video, now);
   const isPurchaseLoading = purchaseLoadingKey === `${video.access_id}:coach_review`;
   const completed =
@@ -723,7 +759,7 @@ function ProReviewSection({
         <span style={pbVisionStatusBadgeStyle(availabilityLabel)}>{availabilityLabel}</span>
       </div>
 
-      {canPurchase && proReviewOffer ? (
+      {canPurchase && customerEnabled && proReviewOffer ? (
         <button
           type="button"
           disabled={isPurchaseLoading}
@@ -786,8 +822,9 @@ function ProReviewSection({
 function LibraryVideoCard({
   video,
   token,
-  showPbVision = false,
-  showProReview = false,
+  showAddons = false,
+  pbVisionCustomerEnabled = true,
+  coachReviewCustomerEnabled = true,
   pbVisionError,
   proReviewError,
   purchaseLoadingKey,
@@ -798,8 +835,9 @@ function LibraryVideoCard({
 }: {
   video: PlayerTroveVideo;
   token?: string;
-  showPbVision?: boolean;
-  showProReview?: boolean;
+  showAddons?: boolean;
+  pbVisionCustomerEnabled?: boolean;
+  coachReviewCustomerEnabled?: boolean;
   pbVisionError?: string;
   proReviewError?: string;
   purchaseLoadingKey?: string | null;
@@ -863,9 +901,10 @@ function LibraryVideoCard({
         </p>
       )}
 
-      {showPbVision && onPbVisionPurchase ? (
+      {showAddons && onPbVisionPurchase ? (
         <PbVisionSection
           video={video}
+          customerEnabled={pbVisionCustomerEnabled}
           pbVisionError={pbVisionError}
           purchaseLoadingKey={purchaseLoadingKey ?? null}
           purchaseError={purchaseError}
@@ -873,9 +912,10 @@ function LibraryVideoCard({
         />
       ) : null}
 
-      {showProReview && onProReviewPurchase && onProReviewRequest ? (
+      {showAddons && onProReviewPurchase && onProReviewRequest ? (
         <ProReviewSection
           video={video}
+          customerEnabled={coachReviewCustomerEnabled}
           proReviewError={proReviewError}
           purchaseLoadingKey={purchaseLoadingKey ?? null}
           purchaseError={purchaseError}

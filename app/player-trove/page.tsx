@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import PlayerTroveContent from '@/app/player-trove/PlayerTroveContent';
 import { retryPendingCheckoutFulfillmentsForEmail } from '@/lib/commerce/fulfillment-retry';
 import { fetchPlayerTroveVideosForEmail } from '@/lib/player-trove-videos';
+import { getFeatureFlags } from '@/lib/feature-flags';
 import {
   PLAYER_TROVE_TOKEN_COOKIE,
   resolvePlayerTroveViewerEmail,
@@ -38,6 +39,7 @@ export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageP
   let initialData = null;
   let initialShowAccessRequest = false;
   let initialError: string | null = null;
+  const featureFlags = await getFeatureFlags();
 
   if (auth.ok) {
     try {
@@ -67,6 +69,9 @@ export default async function PlayerTrovePage({ searchParams }: PlayerTrovePageP
       purchased={params.purchased ?? null}
       checkoutSessionId={params.session_id ?? null}
       serverNow={serverNow}
+      coachReviewCustomerEnabled={featureFlags.coach_review_customer}
+      pbVisionCustomerEnabled={featureFlags.pb_vision_customer}
+      youtubeCustomerEnabled={featureFlags.youtube_customer}
     />
   );
 }

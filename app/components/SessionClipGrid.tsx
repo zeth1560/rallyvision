@@ -20,10 +20,7 @@ import {
   type SessionBundleQuoteClient,
   type SessionClipPricingClient,
 } from '@/lib/commerce/cart-payload';
-import {
-  SESSION_COACH_REVIEW_ADDON_ENABLED,
-  type ProductType,
-} from '@/lib/commerce/products';
+import type { ProductType } from '@/lib/commerce/products';
 
 type SessionClip = {
   id: string;
@@ -46,6 +43,8 @@ type Props = {
   bookingId: string;
   bookingDisplay: string;
   daysRemaining?: number;
+  sessionCoachReviewAddonEnabled?: boolean;
+  pbVisionCustomerEnabled?: boolean;
 };
 
 const CLUB_TIME_ZONE = 'America/Chicago';
@@ -74,8 +73,17 @@ function isValidCheckoutEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function stripCoachReviewFromCart(cart: CartPayload): CartPayload {
-  if (SESSION_COACH_REVIEW_ADDON_ENABLED) {
+function stripDisabledAddonsFromCart(
+  cart: CartPayload,
+  {
+    sessionCoachReviewAddonEnabled,
+    pbVisionCustomerEnabled,
+  }: {
+    sessionCoachReviewAddonEnabled: boolean;
+    pbVisionCustomerEnabled: boolean;
+  }
+): CartPayload {
+  if (sessionCoachReviewAddonEnabled && pbVisionCustomerEnabled) {
     return cart;
   }
 
@@ -84,7 +92,17 @@ function stripCoachReviewFromCart(cart: CartPayload): CartPayload {
     lines: cart.lines
       .map((line) => ({
         ...line,
-        products: line.products.filter((product) => product !== 'coach_review'),
+        products: line.products.filter((product) => {
+          if (!sessionCoachReviewAddonEnabled && product === 'coach_review') {
+            return false;
+          }
+
+          if (!pbVisionCustomerEnabled && product === 'pb_vision') {
+            return false;
+          }
+
+          return true;
+        }),
       }))
       .filter((line) => line.products.length > 0),
   };
@@ -108,6 +126,8 @@ export default function SessionClipGrid({
   bundleQuote,
   bookingId,
   daysRemaining = 30,
+  sessionCoachReviewAddonEnabled = true,
+  pbVisionCustomerEnabled = true,
 }: Props) {
   const storageKey = `replaytrove-cart-${bookingId}`;
 
@@ -133,8 +153,9 @@ export default function SessionClipGrid({
 
       if (saved) {
         setCart(
-          stripCoachReviewFromCart(
-            migrateStoredCart(JSON.parse(saved), clipPricing, bookingId)
+          stripDisabledAddonsFromCart(
+            migrateStoredCart(JSON.parse(saved), clipPricing, bookingId),
+            { sessionCoachReviewAddonEnabled, pbVisionCustomerEnabled }
           )
         );
       }
@@ -143,7 +164,24 @@ export default function SessionClipGrid({
     } finally {
       setCartLoaded(true);
     }
-  }, [storageKey, bookingId, clipPricing]);
+  }, [
+    storageKey,
+    bookingId,
+    clipPricing,
+    sessionCoachReviewAddonEnabled,
+    pbVisionCustomerEnabled,
+  ]);
+
+  useEffect(() => {
+    if (!cartLoaded) return;
+
+    setCart((current) =>
+      stripDisabledAddonsFromCart(current, {
+        sessionCoachReviewAddonEnabled,
+        pbVisionCustomerEnabled,
+      })
+    );
+  }, [cartLoaded, sessionCoachReviewAddonEnabled, pbVisionCustomerEnabled]);
 
   useEffect(() => {
     if (!cartLoaded) return;
@@ -669,30 +707,33 @@ export default function SessionClipGrid({
                           <div className="bundle-note">HD included in Session Bundle</div>
                         ) : null}
 
-                        <label
-                          className={`product-option ${!hdSelected ? 'disabled' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={clipHasProduct(cart, clip.id, 'pb_vision')}
-                            disabled={!hdSelected}
-                            onChange={(event) =>
-                              setCart((current) =>
-                                toggleFullGameProduct(
-                                  current,
-                                  clip.id,
-                                  'pb_vision',
-                                  event.target.checked
+                        {pbVisionCustomerEnabled ? (
+                          <label
+                            className={`product-option ${!hdSelected ? 'disabled' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={clipHasProduct(cart, clip.id, 'pb_vision')}
+                              disabled={!hdSelected}
+                              onChange={(event) =>
+                                setCart((current) =>
+                                  toggleFullGameProduct(
+                                    current,
+                                    clip.id,
+                                    'pb_vision',
+                                    event.target.checked
+                                  )
                                 )
-                              )
-                            }
-                          />
-                          <span>
-                            PB Vision Game Analysis — {formatCents(clip.pbVisionPriceCents)}
-                          </span>
-                        </label>
+                              }
+                            />
+                            <span>
+                              PB Vision Game Analysis —{' '}
+                              {formatCents(clip.pbVisionPriceCents)}
+                            </span>
+                          </label>
+                        ) : null}
 
-                        {SESSION_COACH_REVIEW_ADDON_ENABLED ? (
+                        {sessionCoachReviewAddonEnabled ? (
                           <label
                             className={`product-option ${!hdSelected ? 'disabled' : ''}`}
                           >

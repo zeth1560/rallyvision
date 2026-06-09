@@ -24,6 +24,7 @@ import {
   validatePromoCodeForCheckout,
 } from '@/lib/commerce/promo';
 import { hasVideoBaseAccess } from '@/lib/commerce/entitlements';
+import { getFeatureFlags } from '@/lib/feature-flags';
 import {
   loadActiveAccessByEmailAndClips,
   normalizeCheckoutEmail,
@@ -292,11 +293,16 @@ export async function buildStripeCheckoutFromRequest(
   }
 
   const clipsById = new Map(clips.map((clip) => [clip.id, clip]));
+  const featureFlags = await getFeatureFlags();
 
   await validateNormalizedCartPurchases({
     email: customerEmail ?? '',
     normalized,
     clipsById,
+    featureFlags: {
+      pbVisionCustomerEnabled: featureFlags.pb_vision_customer,
+      sessionCoachReviewAddonEnabled: featureFlags.session_coach_review_addon,
+    },
   });
 
   const priceLines: CheckoutPriceLine[] = [];

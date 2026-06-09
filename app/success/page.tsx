@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SuccessPageClient from './SuccessPageClient';
+import { getFeatureFlags } from '@/lib/feature-flags';
 
 async function getClubNameForSession(sessionId: string | undefined) {
   if (!sessionId) return 'ReplayTrove';
@@ -55,6 +56,13 @@ export async function generateMetadata({
   };
 }
 
-export default function SuccessPage() {
-  return <SuccessPageClient />;
+export default async function SuccessPage() {
+  const featureFlags = await getFeatureFlags();
+
+  return (
+    <SuccessPageClient
+      coachReviewCustomerEnabled={featureFlags.coach_review_customer}
+      pbVisionCustomerEnabled={featureFlags.pb_vision_customer}
+    />
+  );
 }
