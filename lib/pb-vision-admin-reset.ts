@@ -8,7 +8,7 @@ import {
   runPbVisionSubmissionAttempt,
 } from '@/lib/pb-vision-retry-refund';
 
-export async function adminResetPbVisionRequestForRetry(requestId: string) {
+export async function adminPreparePbVisionRequestForRetry(requestId: string) {
   const { data: request, error } = await supabaseAdmin
     .from('pb_vision_requests')
     .select('id, player_video_access_id, email, clip_id')
@@ -39,11 +39,43 @@ export async function adminResetPbVisionRequestForRetry(requestId: string) {
     await repairMissingPbVisionEntitlement(request.player_video_access_id, purchase);
   }
 
+  return {
+    ok: true as const,
+    request_id: request.id,
+  };
+}
+
+export async function adminSubmitPbVisionRequestInBackground(requestId: string) {
   const submitResult = await runPbVisionSubmissionAttempt({
-    requestId: request.id,
+    requestId,
     source: 'admin_retry',
   });
 
+  if (!submitResult.ok) {
+    console.error('[PB Vision Admin Reset] Background submit failed', {
+      request_id: requestId,
+      status: submitResult.status,
+      error: submitResult.error,
+    });
+    return submitResult;
+  }
+
+  console.log('[PB Vision Admin Reset] Background submit succeeded', {
+    request_id: requestId,
+    pbv_vid: submitResult.pbv_vid,
+    status: submitResult.status,
+  });
+
+  return submitResult;
+}
+
+export async function adminResetPbVisionRequestForRetry(requestId: string) {
+  const prepared = await adminPreparePbVisionRequestForRetry(requestId);
+  if (!prepared.ok) {
+    return prepared;
+  }
+
+  const submitResult = await adminSubmitPbVisionRequestInBackground(requestId);
   if (!submitResult.ok) {
     return {
       ok: false as const,

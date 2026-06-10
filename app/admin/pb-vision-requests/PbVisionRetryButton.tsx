@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { parseJsonResponse } from '@/lib/parse-json-response';
 
 export default function PbVisionRetryButton({
   requestId,
@@ -24,7 +25,12 @@ export default function PbVisionRetryButton({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_id: requestId }),
       });
-      const result = await response.json();
+      const result = await parseJsonResponse<{
+        error?: string;
+        accepted?: boolean;
+        message?: string;
+        pbv_vid?: string;
+      }>(response);
 
       if (!response.ok) {
         setError(result.error || 'Reset failed');
@@ -32,11 +38,12 @@ export default function PbVisionRetryButton({
       }
 
       setMessage(
-        result.pbv_vid
-          ? `Resubmitted successfully (PBV VID: ${result.pbv_vid})`
-          : 'Reset and resubmitted successfully'
+        result.message ||
+          (result.pbv_vid
+            ? `Resubmitted successfully (PBV VID: ${result.pbv_vid})`
+            : 'Reset and resubmitted successfully')
       );
-      window.setTimeout(() => window.location.reload(), 1200);
+      window.setTimeout(() => window.location.reload(), result.accepted ? 2500 : 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed');
     } finally {
