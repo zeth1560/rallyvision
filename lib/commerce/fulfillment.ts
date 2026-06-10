@@ -32,6 +32,7 @@ import {
 } from '@/lib/commerce/fulfillment-lock';
 import { resolveBaseProductForClip } from '@/lib/commerce/products';
 import { autoSubmitPbVisionAfterPurchase } from '@/lib/pb-vision-request';
+import { resetPbVisionRequestAfterRepurchase } from '@/lib/pb-vision-retry-refund';
 import { createYouTubeUploadJobForAccess } from '@/lib/youtube-upload-job';
 import type Stripe from 'stripe';
 
@@ -585,6 +586,8 @@ export async function fulfillStripeCheckoutSession({
       clip.duration_seconds >= FULL_GAME_MIN_SECONDS;
 
     if (purchasedPbVision && accessId && isFullGame) {
+      await resetPbVisionRequestAfterRepurchase(accessId);
+
       try {
         const autoSubmitResult = await autoSubmitPbVisionAfterPurchase({
           accessId,

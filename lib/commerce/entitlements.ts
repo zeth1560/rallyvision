@@ -132,6 +132,15 @@ export type PbVisionRequestPurchaseHint = {
   refund_status: string | null;
 };
 
+export function isPbVisionRequestRefunded(
+  request: PbVisionRequestPurchaseHint | null | undefined
+) {
+  return (
+    request?.refund_status === 'completed' ||
+    request?.refund_status === 'skipped_free'
+  );
+}
+
 export function hasPbVisionPurchaseViaRequest(
   request: PbVisionRequestPurchaseHint | null | undefined
 ) {
@@ -139,10 +148,7 @@ export function hasPbVisionPurchaseViaRequest(
     return false;
   }
 
-  if (
-    request.refund_status === 'completed' ||
-    request.refund_status === 'skipped_free'
-  ) {
+  if (isPbVisionRequestRefunded(request)) {
     return false;
   }
 

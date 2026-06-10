@@ -2,7 +2,9 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   buildEntitlementPatchForProduct,
   hasPbVisionPurchaseAccess,
+  isPbVisionRequestRefunded,
   type AccessEntitlementRow,
+  type PbVisionRequestPurchaseHint,
 } from '@/lib/commerce/entitlements';
 
 export type PaidPbVisionPurchase = {
@@ -95,6 +97,18 @@ export function applyPaidPbVisionPurchaseToAccessRow<
   };
 }
 
+export function shouldRepairPbVisionEntitlementFromOrder(
+  access: AccessEntitlementRow,
+  purchase: PaidPbVisionPurchase | undefined,
+  pbVisionRequest: PbVisionRequestPurchaseHint | null | undefined
+) {
+  if (!purchase || hasPbVisionPurchaseAccess(access)) {
+    return false;
+  }
+
+  return !isPbVisionRequestRefunded(pbVisionRequest);
+}
+
 export async function repairMissingPbVisionEntitlement(
   accessId: string,
   purchase: PaidPbVisionPurchase
@@ -124,6 +138,29 @@ export async function repairMissingPbVisionEntitlement(
     stripe_checkout_session_id: purchase.stripeCheckoutSessionId,
     purchased_at: patch.pb_vision_purchased_at,
   });
+
+  return true;
+}
+
+export async function clearPbVisionEntitlement(accessId: string) {
+  const updatedAt = new Date().toISOString();
+
+  const { error } = await supabaseAdmin
+    .from('player_video_access')
+    .update({
+      pb_vision_purchased_at: null,
+      pb_vision_expires_at: null,
+      updated_at: updatedAt,
+    })
+    .eq('id', accessId);
+
+  if (error) {
+    console.error('[PB Vision Entitlements] Failed to clear access entitlement', {
+      access_id: accessId,
+      error: error.message,
+    });
+    return false;
+  }
 
   return true;
 }

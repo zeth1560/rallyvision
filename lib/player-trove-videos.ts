@@ -3,11 +3,16 @@ import { createSignedObjectUrl } from '@/lib/s3';
 import { resolveProductPrice } from '@/lib/pricing';
 import { resolveBaseProductForClip } from '@/lib/commerce/products';
 import {
+  hasPbVisionPurchaseAccess,
+  isPbVisionRequestRefunded,
+} from '@/lib/commerce/entitlements';
+import {
   applyPaidPbVisionPurchaseToAccessRow,
+  clearPbVisionEntitlement,
   loadPaidPbVisionPurchasesForClips,
   repairMissingPbVisionEntitlement,
+  shouldRepairPbVisionEntitlementFromOrder,
 } from '@/lib/commerce/pb-vision-entitlements';
-import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { resolveUpsellOffers } from '@/lib/commerce/player-trove-upsell';
 import { getFeatureFlags } from '@/lib/feature-flags';
 
@@ -255,34 +260,8 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
   const clipIds = [
     ...new Set(canonicalAccessRecords.map((record) => record.clip_id)),
   ];
-  const paidPbVisionByClipId = await loadPaidPbVisionPurchasesForClips(
-    normalizedEmail,
-    clipIds
-  );
-
-  for (const record of canonicalAccessRecords) {
-    const paidPurchase = paidPbVisionByClipId.get(record.clip_id);
-    if (!paidPurchase || hasPbVisionPurchaseAccess(record)) {
-      continue;
-    }
-
-    applyPaidPbVisionPurchaseToAccessRow(record, paidPurchase);
-    await repairMissingPbVisionEntitlement(record.id, paidPurchase);
-  }
-
-  const clipRows = canonicalAccessRecords
-    .map((record) => normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null))
-    .filter(Boolean) as ClipRow[];
-
-  const clubIds = [...new Set(clipRows.map((clip) => clip.club_id).filter(Boolean))] as string[];
-  const courtIds = [...new Set(clipRows.map((clip) => clip.court_id).filter(Boolean))] as string[];
-
-  const [clubNames, courtNames] = await Promise.all([
-    fetchNameMap('clubs', clubIds),
-    fetchNameMap('courts', courtIds),
-  ]);
-
   const accessIds = canonicalAccessRecords.flatMap((record) => record.groupAccessIds);
+
   const pbVisionByAccessId = new Map<
     string,
     {
@@ -292,17 +271,6 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
       error_reason: string | null;
       refund_status: string | null;
       submission_attempt_count: number;
-    }
-  >();
-
-  const proReviewByAccessId = new Map<
-    string,
-    {
-      id: string;
-      status: string;
-      reviewer_link: string | null;
-      buyer_position: string | null;
-      identification_frame_s3_key: string | null;
     }
   >();
 
@@ -324,7 +292,74 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         submission_attempt_count: row.submission_attempt_count,
       });
     }
+  }
 
+  const paidPbVisionByClipId = await loadPaidPbVisionPurchasesForClips(
+    normalizedEmail,
+    clipIds
+  );
+
+  for (const record of canonicalAccessRecords) {
+    const pbVisionRequest = pbVisionByAccessId.get(record.id);
+
+    if (
+      pbVisionRequest &&
+      isPbVisionRequestRefunded({
+        status: pbVisionRequest.status,
+        refund_status: pbVisionRequest.refund_status,
+      }) &&
+      hasPbVisionPurchaseAccess(record)
+    ) {
+      await clearPbVisionEntitlement(record.id);
+      record.pb_vision_purchased_at = null;
+      record.pb_vision_expires_at = null;
+    }
+
+    const paidPurchase = paidPbVisionByClipId.get(record.clip_id);
+
+    if (
+      !shouldRepairPbVisionEntitlementFromOrder(
+        record,
+        paidPurchase,
+        pbVisionRequest
+          ? {
+              status: pbVisionRequest.status,
+              refund_status: pbVisionRequest.refund_status,
+            }
+          : null
+      )
+    ) {
+      continue;
+    }
+
+    applyPaidPbVisionPurchaseToAccessRow(record, paidPurchase!);
+    await repairMissingPbVisionEntitlement(record.id, paidPurchase!);
+  }
+
+  const clipRows = canonicalAccessRecords
+    .map((record) => normalizeClipRelation(record.clips as ClipRow | ClipRow[] | null))
+    .filter(Boolean) as ClipRow[];
+
+  const clubIds = [...new Set(clipRows.map((clip) => clip.club_id).filter(Boolean))] as string[];
+  const courtIds = [...new Set(clipRows.map((clip) => clip.court_id).filter(Boolean))] as string[];
+
+  const [clubNames, courtNames] = await Promise.all([
+    fetchNameMap('clubs', clubIds),
+    fetchNameMap('courts', courtIds),
+  ]);
+
+  const proReviewByAccessId = new Map<
+    string,
+    {
+      id: string;
+      status: string;
+      reviewer_link: string | null;
+      buyer_position: string | null;
+      identification_frame_s3_key: string | null;
+    }
+  >();
+
+  if (accessIds.length > 0) {
     const { data: proReviewRows } = await supabaseAdmin
       .from('pro_review_requests')
       .select(

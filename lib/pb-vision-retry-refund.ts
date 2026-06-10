@@ -637,3 +637,49 @@ export async function runPbVisionSubmissionAttempt({
     pbv_webpage_url: null,
   };
 }
+
+export async function resetPbVisionRequestAfterRepurchase(accessId: string) {
+  const now = new Date().toISOString();
+
+  const { data: existing, error } = await supabaseAdmin
+    .from('pb_vision_requests')
+    .select('id')
+    .eq('player_video_access_id', accessId)
+    .maybeSingle();
+
+  if (error || !existing) {
+    return false;
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('pb_vision_requests')
+    .update({
+      status: 'requested',
+      refund_status: null,
+      stripe_refund_id: null,
+      refunded_at: null,
+      auto_retry_exhausted_at: null,
+      error_reason: null,
+      submission_attempt_count: 0,
+      last_retry_at: null,
+      pbv_vid: null,
+      pbv_webpage_url: null,
+      pbv_from_url: null,
+      submitted_at: null,
+      completed_at: null,
+      callback_received_at: null,
+      updated_at: now,
+    })
+    .eq('id', existing.id);
+
+  if (updateError) {
+    console.error('[PB Vision] Failed to reset request after repurchase', {
+      access_id: accessId,
+      request_id: existing.id,
+      error: updateError.message,
+    });
+    return false;
+  }
+
+  return true;
+}

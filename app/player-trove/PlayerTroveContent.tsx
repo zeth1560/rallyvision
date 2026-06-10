@@ -588,7 +588,7 @@ function VideoCard({
                 : 'Download HD'}
         </button>
 
-        {showAdvancedActions && pbVisionPurchased ? (
+        {showAdvancedActions && pbVisionPurchased && !pbVisionRefunded ? (
             <button
               disabled={pbVisionDisabled}
               style={{

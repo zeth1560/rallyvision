@@ -80,6 +80,13 @@ assert(
 );
 
 assert(
+  'refunded PB Vision requests allow purchase again',
+  resolveUpsellOffers(hdPurchased, fullGameClip, pricing, {
+    pbVisionRequest: { status: 'failed', refund_status: 'completed' },
+  }).find((o) => o.product === 'pb_vision')?.status === 'available'
+);
+
+assert(
   'reject duplicate clip_download purchase',
   validateUpsellPurchaseRequest(shortClipPurchased, shortClip, ['clip_download']).ok === false
 );

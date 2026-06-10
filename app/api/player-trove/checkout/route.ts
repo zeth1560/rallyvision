@@ -20,6 +20,7 @@ import {
   applyPaidPbVisionPurchaseToAccessRow,
   loadPaidPbVisionPurchasesForClips,
   repairMissingPbVisionEntitlement,
+  shouldRepairPbVisionEntitlementFromOrder,
 } from '@/lib/commerce/pb-vision-entitlements';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { getFeatureFlags } from '@/lib/feature-flags';
@@ -143,16 +144,28 @@ export async function POST(request: NextRequest) {
 
     let accessForValidation = access;
     if (products.includes('pb_vision') && !hasPbVisionPurchaseAccess(access)) {
+      const { data: pbVisionRequest } = await supabaseAdmin
+        .from('pb_vision_requests')
+        .select('status, refund_status')
+        .eq('player_video_access_id', access.id)
+        .maybeSingle();
+
       const paidPbVisionByClipId = await loadPaidPbVisionPurchasesForClips(viewerEmail, [
         access.clip_id,
       ]);
       const paidPurchase = paidPbVisionByClipId.get(access.clip_id);
 
-      if (paidPurchase) {
-        await repairMissingPbVisionEntitlement(access.id, paidPurchase);
+      if (
+        shouldRepairPbVisionEntitlementFromOrder(
+          access,
+          paidPurchase,
+          pbVisionRequest
+        )
+      ) {
+        await repairMissingPbVisionEntitlement(access.id, paidPurchase!);
         accessForValidation = applyPaidPbVisionPurchaseToAccessRow(
           access,
-          paidPurchase
+          paidPurchase!
         );
       }
     }

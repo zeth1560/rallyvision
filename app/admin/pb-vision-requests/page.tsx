@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import PbVisionRetryButton from '@/app/admin/pb-vision-requests/PbVisionRetryButton';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { formatDateInTimezone } from '@/lib/formatDate';
@@ -393,6 +394,12 @@ export default async function AdminPbVisionRequestsPage({
                         View PB Vision Results
                       </a>
                     </div>
+                  ) : null}
+
+                  {request.refund_status === 'completed' ||
+                  request.refund_status === 'skipped_free' ||
+                  request.status === 'failed' ? (
+                    <PbVisionRetryButton requestId={request.id} />
                   ) : null}
                 </div>
               );

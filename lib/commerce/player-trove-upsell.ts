@@ -15,6 +15,7 @@ import {
   hasPbVisionPurchaseAccess,
   hasPbVisionPurchaseViaRequest,
   hasVideoBaseAccess,
+  isPbVisionRequestRefunded,
   type AccessEntitlementRow,
   type PbVisionRequestPurchaseHint,
 } from '@/lib/commerce/entitlements';
@@ -74,10 +75,15 @@ export function resolveUpsellOffers(
   });
 
   for (const addon of ['pb_vision', 'coach_review'] as const) {
+    const pbVisionRefunded =
+      addon === 'pb_vision' &&
+      isPbVisionRequestRefunded(options?.pbVisionRequest);
+
     const purchased =
       addon === 'pb_vision'
-        ? hasPbVisionPurchaseAccess(access) ||
-          hasPbVisionPurchaseViaRequest(options?.pbVisionRequest)
+        ? !pbVisionRefunded &&
+          (hasPbVisionPurchaseAccess(access) ||
+            hasPbVisionPurchaseViaRequest(options?.pbVisionRequest))
         : hasCoachReviewPurchaseAccess(access);
 
     const priceCents =
