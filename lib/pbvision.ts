@@ -1,8 +1,8 @@
 import { PBVision } from '@pbvision/partner-sdk';
+import { preparePbVisionStreamableCopy } from '@/lib/pb-vision-mp4-prep';
 import { createPbVisionSourceUrl } from '@/lib/pb-vision-source-url';
 import {
   createSignedMp4FetchUrl,
-  downloadS3ObjectToTempFile,
   ensureS3ObjectHasVideoMp4ContentType,
   getS3ObjectContentLength,
   MAX_PBV_PROXY_BYTES,
@@ -16,6 +16,8 @@ export type PBVisionSubmitMetadata = {
   facility?: string;
   court?: string;
 };
+
+export type PbVisionSubmitMethod = 'url' | 'proxy' | 'prepared-url' | 'prepared-proxy';
 
 let pbvClient: PBVision | null = null;
 
@@ -76,31 +78,6 @@ export async function submitVideoUrlToPBVision({
   return { vid: result.vid };
 }
 
-export async function submitVideoFileToPBVision({
-  filePath,
-  metadata,
-}: {
-  filePath: string;
-  metadata: PBVisionSubmitMetadata;
-}): Promise<{ vid: string }> {
-  const pbv = getPBVisionClient();
-
-  console.log('[PB Vision] Submitting uploadVideo', {
-    filePath,
-    userEmailCount: metadata.userEmails.length,
-  });
-
-  const result = await pbv.uploadVideo(filePath, toPbvMetadata(metadata));
-  if (result.hasCredits === false) {
-    throw new Error('PB Vision credits unavailable for this upload');
-  }
-  if (!result.vid) {
-    throw new Error('PB Vision upload did not return a video id');
-  }
-
-  return { vid: result.vid };
-}
-
 async function submitViaSignedS3Url(
   s3Key: string,
   metadata: PBVisionSubmitMetadata
@@ -139,60 +116,99 @@ async function submitViaProxyUrl(
   return result;
 }
 
+async function submitViaUrlSources(
+  s3Key: string,
+  metadata: PBVisionSubmitMetadata
+): Promise<{ vid: string; method: PbVisionSubmitMethod } | null> {
+  try {
+    const result = await submitViaSignedS3Url(s3Key, metadata);
+    return { vid: result.vid, method: 'url' };
+  } catch (error) {
+    if (!shouldRetryPbVisionWithAlternateSource(error)) {
+      throw error;
+    }
+
+    console.warn('[PB Vision] Signed S3 URL submit failed, trying proxy URL', {
+      s3_key: s3Key,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+
+  try {
+    const result = await submitViaProxyUrl(s3Key, metadata);
+    if (result) {
+      return { vid: result.vid, method: 'proxy' };
+    }
+  } catch (error) {
+    if (!shouldRetryPbVisionWithAlternateSource(error)) {
+      throw error;
+    }
+
+    console.warn('[PB Vision] Proxy URL submit failed', {
+      s3_key: s3Key,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+
+  return null;
+}
+
 export async function submitVideoS3KeyToPBVision({
   s3Key,
   metadata,
 }: {
   s3Key: string;
   metadata: PBVisionSubmitMetadata;
-}): Promise<{ vid: string; method: 'url' | 'proxy' | 'upload' }> {
+}): Promise<{ vid: string; method: PbVisionSubmitMethod }> {
   await ensureS3ObjectHasVideoMp4ContentType(s3Key);
 
-  if (s3Key.toLowerCase().endsWith('.mp4')) {
-    try {
-      const result = await submitViaSignedS3Url(s3Key, metadata);
-      return { vid: result.vid, method: 'url' };
-    } catch (error) {
-      if (!shouldRetryPbVisionWithAlternateSource(error)) {
-        throw error;
-      }
-
-      console.warn('[PB Vision] Signed S3 URL submit failed, trying proxy URL', {
-        s3_key: s3Key,
-        error: error instanceof Error ? error.message : error,
-      });
-    }
-
-    try {
-      const result = await submitViaProxyUrl(s3Key, metadata);
-      if (result) {
-        return { vid: result.vid, method: 'proxy' };
-      }
-    } catch (error) {
-      if (!shouldRetryPbVisionWithAlternateSource(error)) {
-        throw error;
-      }
-
-      console.warn('[PB Vision] Proxy URL submit failed, trying direct upload', {
-        s3_key: s3Key,
-        error: error instanceof Error ? error.message : error,
-      });
-    }
-  } else {
-    console.log('[PB Vision] S3 key missing .mp4 extension, using direct upload', {
-      s3_key: s3Key,
-    });
+  if (!s3Key.toLowerCase().endsWith('.mp4')) {
+    throw new Error('Video file must be an MP4 for PB Vision analysis');
   }
 
-  const { filePath, cleanup } = await downloadS3ObjectToTempFile(s3Key);
+  const initialAttempt = await submitViaUrlSources(s3Key, metadata);
+  if (initialAttempt) {
+    return initialAttempt;
+  }
+
+  let cleanupPreparedCopy: (() => Promise<void>) | null = null;
   try {
-    const result = await submitVideoFileToPBVision({
-      filePath,
-      metadata,
-    });
-    return { vid: result.vid, method: 'upload' };
+    const prepared = await preparePbVisionStreamableCopy(s3Key);
+    cleanupPreparedCopy = prepared.cleanup;
+
+    try {
+      const result = await submitViaSignedS3Url(prepared.stagingKey, metadata);
+      return { vid: result.vid, method: 'prepared-url' };
+    } catch (error) {
+      if (!shouldRetryPbVisionWithAlternateSource(error)) {
+        throw error;
+      }
+
+      console.warn('[PB Vision] Prepared signed URL submit failed, trying prepared proxy URL', {
+        source_key: s3Key,
+        staging_key: prepared.stagingKey,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
+    try {
+      const result = await submitViaProxyUrl(prepared.stagingKey, metadata);
+      if (result) {
+        return { vid: result.vid, method: 'prepared-proxy' };
+      }
+    } catch (error) {
+      if (!shouldRetryPbVisionWithAlternateSource(error)) {
+        throw error;
+      }
+    }
+
+    throw new Error(
+      'PB Vision could not read video duration from this file after preparing a streamable copy. The source MP4 may need to be re-encoded as H.264.'
+    );
   } finally {
-    await cleanup();
+    if (cleanupPreparedCopy) {
+      await cleanupPreparedCopy();
+    }
   }
 }
 

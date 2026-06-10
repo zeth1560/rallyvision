@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   submitVideoS3KeyToPBVision,
   type PBVisionSubmitMetadata,
+  type PbVisionSubmitMethod,
 } from '@/lib/pbvision';
 import { resolveHdDownloadByAccessId } from '@/lib/hd-download';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
@@ -611,7 +612,7 @@ export async function runPbVisionSubmissionAttempt({
   }
 
   let pbvVid: string;
-  let submitMethod: 'url' | 'proxy' | 'upload' = 'url';
+  let submitMethod: PbVisionSubmitMethod = 'url';
   try {
     const submitted = await submitVideoS3KeyToPBVision({
       s3Key,

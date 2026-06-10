@@ -3,9 +3,11 @@ import {
   GetObjectCommand,
   CopyObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -177,4 +179,28 @@ export async function copyObjectWithinBucket(
   });
 
   return await s3.send(command);
+}
+
+export async function uploadLocalFileToS3(
+  key: string,
+  filePath: string,
+  contentType = 'video/mp4'
+) {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: createReadStream(filePath),
+      ContentType: contentType,
+    })
+  );
+}
+
+export async function deleteS3Object(key: string) {
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
 }
