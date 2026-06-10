@@ -26,7 +26,7 @@ export default function PbVisionRetryButton({
     setError(null);
 
     try {
-      setMessage('Preparing and submitting video — this may take several minutes…');
+      setMessage('Submitting to PB Vision…');
 
       const response = await fetch('/api/admin/pb-vision-requests/retry', {
         method: 'POST',

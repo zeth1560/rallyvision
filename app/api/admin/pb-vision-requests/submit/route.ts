@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { adminSubmitPbVisionRequestSafely } from '@/lib/pb-vision-admin-reset';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const adminUser = await getAdminUser();

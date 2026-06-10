@@ -3,7 +3,7 @@ import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { adminRetryPbVisionRequest } from '@/lib/pb-vision-admin-reset';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const adminUser = await getAdminUser();
