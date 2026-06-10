@@ -102,7 +102,7 @@ function encodeS3CopySource(sourceKey: string) {
 export const MAX_PBV_DIRECT_UPLOAD_BYTES = 800 * 1024 * 1024;
 
 /** Max size served through the PB Vision proxy URL fallback on our origin. */
-export const MAX_PBV_PROXY_BYTES = 400 * 1024 * 1024;
+export const MAX_PBV_PROXY_BYTES = MAX_PBV_DIRECT_UPLOAD_BYTES;
 
 export async function ensureS3ObjectHasVideoMp4ContentType(key: string): Promise<void> {
   const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));

@@ -115,12 +115,15 @@ async function submitViaSignedS3Url(
 async function submitViaProxyUrl(
   s3Key: string,
   metadata: PBVisionSubmitMetadata
-): Promise<{ vid: string }> {
+): Promise<{ vid: string } | null> {
   const contentLength = await getS3ObjectContentLength(s3Key);
   if (contentLength != null && contentLength > MAX_PBV_PROXY_BYTES) {
-    throw new Error(
-      `Video is too large for PB Vision proxy fetch (${contentLength} bytes; max ${MAX_PBV_PROXY_BYTES})`
-    );
+    console.warn('[PB Vision] Skipping proxy URL because file exceeds proxy limit', {
+      s3_key: s3Key,
+      content_length: contentLength,
+      max_proxy_bytes: MAX_PBV_PROXY_BYTES,
+    });
+    return null;
   }
 
   const proxyUrl = createPbVisionSourceUrl(s3Key);
@@ -129,10 +132,11 @@ async function submitViaProxyUrl(
     urlEndsWithMp4: proxyUrl.split('?')[0].endsWith('.mp4'),
   });
 
-  return submitVideoUrlToPBVision({
+  const result = await submitVideoUrlToPBVision({
     videoUrl: proxyUrl,
     metadata,
   });
+  return result;
 }
 
 export async function submitVideoS3KeyToPBVision({
@@ -161,7 +165,9 @@ export async function submitVideoS3KeyToPBVision({
 
     try {
       const result = await submitViaProxyUrl(s3Key, metadata);
-      return { vid: result.vid, method: 'proxy' };
+      if (result) {
+        return { vid: result.vid, method: 'proxy' };
+      }
     } catch (error) {
       if (!shouldRetryPbVisionWithAlternateSource(error)) {
         throw error;
