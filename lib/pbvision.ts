@@ -1,5 +1,10 @@
 import { PBVision } from '@pbvision/partner-sdk';
-import { preparePbVisionStreamableCopy } from '@/lib/pb-vision-mp4-prep';
+import {
+  formatPbVisionPrepFailureMessage,
+  inspectSourceMp4FromS3,
+  preparePbVisionCopy,
+  type PbVisionPrepStrategy,
+} from '@/lib/pb-vision-mp4-prep';
 import { createPbVisionSourceUrl } from '@/lib/pb-vision-source-url';
 import {
   createSignedMp4FetchUrl,
@@ -18,6 +23,12 @@ export type PBVisionSubmitMetadata = {
 };
 
 export type PbVisionSubmitMethod = 'url' | 'proxy' | 'prepared-url' | 'prepared-proxy';
+
+const PREP_STRATEGIES: PbVisionPrepStrategy[] = [
+  'moov-faststart',
+  'ffmpeg-copy',
+  'h264-transcode',
+];
 
 let pbvClient: PBVision | null = null;
 
@@ -119,7 +130,7 @@ async function submitViaProxyUrl(
 async function submitViaUrlSources(
   s3Key: string,
   metadata: PBVisionSubmitMetadata
-): Promise<{ vid: string; method: PbVisionSubmitMethod } | null> {
+): Promise<{ vid: string; method: 'url' | 'proxy' } | null> {
   try {
     const result = await submitViaSignedS3Url(s3Key, metadata);
     return { vid: result.vid, method: 'url' };
@@ -153,6 +164,35 @@ async function submitViaUrlSources(
   return null;
 }
 
+async function submitPreparedCopy(
+  sourceKey: string,
+  strategy: PbVisionPrepStrategy,
+  metadata: PBVisionSubmitMetadata
+): Promise<{ vid: string; method: PbVisionSubmitMethod } | null> {
+  let cleanupPreparedCopy: (() => Promise<void>) | null = null;
+  let keepPreparedCopy = false;
+
+  try {
+    const prepared = await preparePbVisionCopy(sourceKey, strategy);
+    cleanupPreparedCopy = prepared.cleanup;
+
+    const result = await submitViaUrlSources(prepared.stagingKey, metadata);
+    if (!result) {
+      return null;
+    }
+
+    keepPreparedCopy = true;
+    return {
+      vid: result.vid,
+      method: result.method === 'proxy' ? 'prepared-proxy' : 'prepared-url',
+    };
+  } finally {
+    if (cleanupPreparedCopy && !keepPreparedCopy) {
+      await cleanupPreparedCopy();
+    }
+  }
+}
+
 export async function submitVideoS3KeyToPBVision({
   s3Key,
   metadata,
@@ -171,45 +211,27 @@ export async function submitVideoS3KeyToPBVision({
     return initialAttempt;
   }
 
-  let cleanupPreparedCopy: (() => Promise<void>) | null = null;
-  try {
-    const prepared = await preparePbVisionStreamableCopy(s3Key);
-    cleanupPreparedCopy = prepared.cleanup;
-
+  for (const strategy of PREP_STRATEGIES) {
     try {
-      const result = await submitViaSignedS3Url(prepared.stagingKey, metadata);
-      return { vid: result.vid, method: 'prepared-url' };
+      const preparedAttempt = await submitPreparedCopy(s3Key, strategy, metadata);
+      if (preparedAttempt) {
+        return preparedAttempt;
+      }
     } catch (error) {
       if (!shouldRetryPbVisionWithAlternateSource(error)) {
         throw error;
       }
 
-      console.warn('[PB Vision] Prepared signed URL submit failed, trying prepared proxy URL', {
+      console.warn('[PB Vision] Prepared copy submit failed', {
         source_key: s3Key,
-        staging_key: prepared.stagingKey,
+        strategy,
         error: error instanceof Error ? error.message : error,
       });
     }
-
-    try {
-      const result = await submitViaProxyUrl(prepared.stagingKey, metadata);
-      if (result) {
-        return { vid: result.vid, method: 'prepared-proxy' };
-      }
-    } catch (error) {
-      if (!shouldRetryPbVisionWithAlternateSource(error)) {
-        throw error;
-      }
-    }
-
-    throw new Error(
-      'PB Vision could not read video duration from this file after preparing a streamable copy. The source MP4 may need to be re-encoded as H.264.'
-    );
-  } finally {
-    if (cleanupPreparedCopy) {
-      await cleanupPreparedCopy();
-    }
   }
+
+  const inspection = await inspectSourceMp4FromS3(s3Key);
+  throw new Error(formatPbVisionPrepFailureMessage(inspection));
 }
 
 /** Register PB Vision webhook URL (run once per environment). */

@@ -1,7 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  outputFileTracingIncludes: {
+    '/api/admin/pb-vision-requests/reset': [
+      './node_modules/ffmpeg-static/ffmpeg',
+    ],
+    '/api/player-trove/pb-vision/request': [
+      './node_modules/ffmpeg-static/ffmpeg',
+    ],
+  },
 };
 
 export default nextConfig;
