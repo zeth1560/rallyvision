@@ -90,12 +90,37 @@ export async function adminSubmitPbVisionRequestSafely(requestId: string) {
 }
 
 export async function adminRetryPbVisionRequest(requestId: string) {
-  const prepared = await adminPreparePbVisionRequestForRetry(requestId);
-  if (!prepared.ok) {
-    return prepared;
-  }
+  try {
+    const prepared = await adminPreparePbVisionRequestForRetry(requestId);
+    if (!prepared.ok) {
+      return prepared;
+    }
 
-  return adminSubmitPbVisionRequestSafely(requestId);
+    return await adminSubmitPbVisionRequestSafely(requestId);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'PB Vision retry failed unexpectedly';
+
+    console.error('[PB Vision Admin Retry] Uncaught error', {
+      request_id: requestId,
+      error: message,
+    });
+
+    try {
+      await markPbVisionSubmissionFailed(requestId, message);
+    } catch (markError) {
+      console.error('[PB Vision Admin Retry] Failed to mark request failed', {
+        request_id: requestId,
+        error: markError instanceof Error ? markError.message : markError,
+      });
+    }
+
+    return {
+      ok: false as const,
+      status: 500,
+      error: message,
+    };
+  }
 }
 
 export async function adminResetPbVisionRequestForRetry(requestId: string) {

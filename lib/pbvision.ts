@@ -238,7 +238,10 @@ export async function submitVideoS3KeyToPBVision({
     }
   }
 
-  const inspection = await inspectSourceMp4FromS3(s3Key);
+  const inspection =
+    contentLength != null && contentLength > 300 * 1024 * 1024
+      ? null
+      : await inspectSourceMp4FromS3(s3Key);
   throw new Error(formatPbVisionPrepFailureMessage(inspection));
 }
 

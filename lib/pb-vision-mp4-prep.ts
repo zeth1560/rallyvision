@@ -189,9 +189,9 @@ export function getPbVisionPrepStrategies(
   const large =
     contentLength != null && contentLength > 300 * 1024 * 1024;
 
-  // Large files: ffmpeg reads from S3 over HTTP (no /tmp input), only one output file on disk.
+  // Large files: only ffmpeg stream-copy fits Vercel /tmp and memory limits.
   if (large) {
-    return ['ffmpeg-copy', 'moov-faststart', 'h264-transcode'];
+    return ['ffmpeg-copy'];
   }
 
   return ['moov-faststart', 'ffmpeg-copy', 'h264-transcode'];

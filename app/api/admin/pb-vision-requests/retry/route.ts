@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { adminRetryPbVisionRequest } from '@/lib/pb-vision-admin-reset';
 
+export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
@@ -11,9 +12,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  let requestId: string | undefined;
+
   try {
     const body = await request.json();
-    const requestId = body?.request_id?.trim();
+    requestId = body?.request_id?.trim();
 
     if (!requestId) {
       return NextResponse.json({ error: 'request_id is required' }, { status: 400 });
@@ -32,10 +35,14 @@ export async function POST(request: NextRequest) {
       pbv_vid: result.pbv_vid,
     });
   } catch (error) {
-    console.error('[PB Vision Admin Retry] Route error:', error);
-    return NextResponse.json(
-      { error: 'Failed to retry PB Vision request' },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : 'Failed to retry PB Vision request';
+
+    console.error('[PB Vision Admin Retry] Route error:', {
+      request_id: requestId,
+      error: message,
+    });
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
