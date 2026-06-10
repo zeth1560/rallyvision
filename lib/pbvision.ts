@@ -1,7 +1,9 @@
 import { PBVision } from '@pbvision/partner-sdk';
 import {
   formatPbVisionPrepFailureMessage,
+  getPbVisionPrepStrategies,
   inspectSourceMp4FromS3,
+  PbVisionPrepSkippedError,
   preparePbVisionCopy,
   type PbVisionPrepStrategy,
 } from '@/lib/pb-vision-mp4-prep';
@@ -23,12 +25,6 @@ export type PBVisionSubmitMetadata = {
 };
 
 export type PbVisionSubmitMethod = 'url' | 'proxy' | 'prepared-url' | 'prepared-proxy';
-
-const PREP_STRATEGIES: PbVisionPrepStrategy[] = [
-  'moov-faststart',
-  'ffmpeg-copy',
-  'h264-transcode',
-];
 
 let pbvClient: PBVision | null = null;
 
@@ -211,13 +207,25 @@ export async function submitVideoS3KeyToPBVision({
     return initialAttempt;
   }
 
-  for (const strategy of PREP_STRATEGIES) {
+  const contentLength = await getS3ObjectContentLength(s3Key);
+  const prepStrategies = getPbVisionPrepStrategies(contentLength);
+
+  for (const strategy of prepStrategies) {
     try {
       const preparedAttempt = await submitPreparedCopy(s3Key, strategy, metadata);
       if (preparedAttempt) {
         return preparedAttempt;
       }
     } catch (error) {
+      if (error instanceof PbVisionPrepSkippedError) {
+        console.warn('[PB Vision] Skipping prep strategy', {
+          source_key: s3Key,
+          strategy,
+          reason: error.message,
+        });
+        continue;
+      }
+
       if (!shouldRetryPbVisionWithAlternateSource(error)) {
         throw error;
       }

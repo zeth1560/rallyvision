@@ -103,6 +103,15 @@ function encodeS3CopySource(sourceKey: string) {
 /** PB Vision accepts up to 2GB; keep under serverless memory/time limits. */
 export const MAX_PBV_DIRECT_UPLOAD_BYTES = 800 * 1024 * 1024;
 
+/** Max MP4 size to load into memory for moov-faststart prep (3GB function RAM). */
+export const MAX_PBV_IN_MEMORY_PREP_BYTES = 700 * 1024 * 1024;
+
+/** Max MP4 size for a single ffmpeg output file on Vercel /tmp (512MB limit). */
+export const MAX_PBV_FFMPEG_DISK_OUTPUT_BYTES = 480 * 1024 * 1024;
+
+/** Max source size for H.264 transcode; encoding scratch space exceeds /tmp above this. */
+export const MAX_PBV_H264_TRANSCODE_BYTES = 400 * 1024 * 1024;
+
 /** Max size served through the PB Vision proxy URL fallback on our origin. */
 export const MAX_PBV_PROXY_BYTES = MAX_PBV_DIRECT_UPLOAD_BYTES;
 
@@ -201,6 +210,52 @@ export async function deleteS3Object(key: string) {
     new DeleteObjectCommand({
       Bucket: bucket,
       Key: key,
+    })
+  );
+}
+
+export async function readS3ObjectToBuffer(
+  key: string,
+  maxBytes: number
+): Promise<Buffer> {
+  const contentLength = await getS3ObjectContentLength(key);
+  if (contentLength != null && contentLength > maxBytes) {
+    throw new Error(
+      `S3 object exceeds in-memory limit (${contentLength} bytes; max ${maxBytes})`
+    );
+  }
+
+  const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!response.Body) {
+    throw new Error('S3 object has no body');
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for await (const chunk of response.Body as AsyncIterable<Buffer | Uint8Array>) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > maxBytes) {
+      throw new Error(`S3 object exceeds in-memory limit while reading (${maxBytes})`);
+    }
+    chunks.push(buffer);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+export async function uploadBufferToS3(
+  key: string,
+  body: Buffer,
+  contentType = 'video/mp4'
+) {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
     })
   );
 }
