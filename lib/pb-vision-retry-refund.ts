@@ -88,6 +88,10 @@ async function fetchClubCourtNames(clipId: string) {
   };
 }
 
+type PbVisionSubmitContext = PBVisionSubmitMetadata & {
+  clipDurationSeconds?: number;
+};
+
 function buildPbVisionMetadata({
   email,
   accessId,
@@ -102,10 +106,10 @@ function buildPbVisionMetadata({
   clip: ClipMetadata;
   facility?: string;
   court?: string;
-}): PBVisionSubmitMetadata {
+}): PbVisionSubmitContext {
   const gameStartEpoch =
     epochSecondsFromIso(clip.recorded_at) ?? epochSecondsFromIso(clip.created_at);
-  const videoSecs =
+  const clipDurationSeconds =
     clip.duration_seconds != null && clip.duration_seconds > 0
       ? Math.round(clip.duration_seconds)
       : undefined;
@@ -117,7 +121,7 @@ function buildPbVisionMetadata({
     facility,
     court,
     desc: `ReplayTrove PlayerTrove access ${accessId} · request ${requestId}`,
-    videoSecs,
+    clipDurationSeconds,
   };
 }
 
@@ -586,7 +590,7 @@ export async function runPbVisionSubmissionAttempt({
     court,
   });
 
-  if (metadata.videoSecs == null) {
+  if (metadata.clipDurationSeconds == null) {
     const message = 'Video duration is required for PB Vision analysis';
     const { exhausted } = await finalizePbVisionSubmissionFailure({
       requestId,
@@ -635,7 +639,14 @@ export async function runPbVisionSubmissionAttempt({
   try {
     const submitted = await submitVideoUrlToPBVision({
       videoUrl: signedUrl,
-      metadata,
+      metadata: {
+        userEmails: metadata.userEmails,
+        name: metadata.name,
+        desc: metadata.desc,
+        gameStartEpoch: metadata.gameStartEpoch,
+        facility: metadata.facility,
+        court: metadata.court,
+      },
     });
     pbvVid = submitted.vid;
   } catch (submitError) {
@@ -647,7 +658,7 @@ export async function runPbVisionSubmissionAttempt({
       attempt: attemptNumber,
       source,
       s3_key: s3Key,
-      video_secs: metadata.videoSecs,
+      clip_duration_seconds: metadata.clipDurationSeconds,
       error: reason,
     });
 

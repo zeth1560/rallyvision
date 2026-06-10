@@ -7,7 +7,6 @@ declare module '@pbvision/partner-sdk' {
     facility?: string;
     court?: string;
     fid?: number;
-    videoSecs?: number;
   };
 
   export class PBVision {
