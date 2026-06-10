@@ -622,6 +622,7 @@ export async function runPbVisionSubmissionAttempt({
         gameStartEpoch: metadata.gameStartEpoch,
         facility: metadata.facility,
         court: metadata.court,
+        videoSecs: metadata.clipDurationSeconds,
       },
     });
     pbvVid = submitted.vid;
