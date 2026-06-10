@@ -1,8 +1,11 @@
-import { createReadStream, statSync } from 'node:fs';
 import { PBVision } from '@pbvision/partner-sdk';
+import { createPbVisionSourceUrl } from '@/lib/pb-vision-source-url';
 import {
   createSignedMp4FetchUrl,
   downloadS3ObjectToTempFile,
+  ensureS3ObjectHasVideoMp4ContentType,
+  getS3ObjectContentLength,
+  MAX_PBV_PROXY_BYTES,
 } from '@/lib/s3';
 
 export type PBVisionSubmitMetadata = {
@@ -12,41 +15,20 @@ export type PBVisionSubmitMetadata = {
   gameStartEpoch?: number;
   facility?: string;
   court?: string;
-  /** Duration in seconds; required for direct upload / make_video_id billing. */
-  videoSecs?: number;
 };
 
 let pbvClient: PBVision | null = null;
 
-function getPbVisionApiKeyParts() {
+function getPBVisionClient(): PBVision {
   const apiKey = process.env.PBVISION_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('PBVISION_API_KEY is not configured');
   }
 
-  const underscoreIndex = apiKey.lastIndexOf('_');
-  if (underscoreIndex === -1) {
-    throw new Error('Invalid PBVISION_API_KEY format');
-  }
-
-  return {
-    apiKey,
-    uid: apiKey.substring(0, underscoreIndex),
-    useProdServer: process.env.PBVISION_USE_PROD_SERVER === 'true',
-  };
-}
-
-function getPbVisionServer(useProdServer: boolean) {
-  return useProdServer
-    ? 'https://api-2o2klzx4pa-uc.a.run.app'
-    : 'https://api-ko3kowqi6a-uc.a.run.app';
-}
-
-function getPBVisionClient(): PBVision {
-  const { apiKey, useProdServer } = getPbVisionApiKeyParts();
-
   if (!pbvClient) {
-    pbvClient = new PBVision(apiKey, { useProdServer });
+    pbvClient = new PBVision(apiKey, {
+      useProdServer: process.env.PBVISION_USE_PROD_SERVER === 'true',
+    });
   }
 
   return pbvClient;
@@ -63,89 +45,7 @@ function toPbvMetadata(metadata: PBVisionSubmitMetadata) {
   };
 }
 
-async function callPBVisionPartnerApi(path: string, body: Record<string, unknown>) {
-  const { apiKey, useProdServer } = getPbVisionApiKeyParts();
-  const server = getPbVisionServer(useProdServer);
-
-  const response = await fetch(`${server}/partner/${path}`, {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  const responseBody = await response.text();
-  if (!response.ok) {
-    throw new Error(`PB Vision API ${path} failed (${response.status}): ${responseBody}`);
-  }
-
-  return responseBody ? JSON.parse(responseBody) : true;
-}
-
-async function uploadFileToPbVisionGcs(
-  bucket: string,
-  objectName: string,
-  filePath: string
-) {
-  const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=resumable&name=${encodeURIComponent(objectName)}`;
-  const numBytesTotal = statSync(filePath).size;
-  let response = await fetch(url, {
-    method: 'POST',
-    headers: { 'X-Upload-Content-Length': String(numBytesTotal) },
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `PB Vision upload failed to initialize (${response.status}): ${await response.text()}`
-    );
-  }
-
-  const sessionUri = response.headers.get('Location');
-  if (!sessionUri) {
-    throw new Error('PB Vision upload failed to initialize: missing session URI');
-  }
-
-  const minChunkSize = 256 * 1024;
-  const chunkSize = Math.max(minChunkSize, 8 * 1024 * 1024);
-  let startIdx = 0;
-
-  while (startIdx < numBytesTotal) {
-    const endIdx = Math.min(startIdx + chunkSize - 1, numBytesTotal - 1);
-    const chunk = await new Promise<Buffer>((resolve, reject) => {
-      const buffer = Buffer.alloc(endIdx - startIdx + 1);
-      let bytesRead = 0;
-      const stream = createReadStream(filePath, { start: startIdx, end: endIdx });
-      stream.on('data', (data) => {
-        const chunkBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        chunkBuffer.copy(buffer, bytesRead);
-        bytesRead += chunkBuffer.length;
-      });
-      stream.on('end', () => resolve(buffer));
-      stream.on('error', reject);
-    });
-
-    response = await fetch(sessionUri, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': String(chunk.length),
-        'Content-Range': `bytes ${startIdx}-${endIdx}/${numBytesTotal}`,
-      },
-      body: new Uint8Array(chunk),
-    });
-
-    if (response.status >= 400) {
-      throw new Error(
-        `PB Vision upload failed at byte ${startIdx} (${response.status}): ${await response.text()}`
-      );
-    }
-
-    startIdx = endIdx + 1;
-  }
-}
-
-export function shouldFallbackToPbVisionFileUpload(error: unknown): boolean {
+export function shouldRetryPbVisionWithAlternateSource(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
@@ -183,51 +83,56 @@ export async function submitVideoFileToPBVision({
   filePath: string;
   metadata: PBVisionSubmitMetadata;
 }): Promise<{ vid: string }> {
-  if (metadata.videoSecs == null || metadata.videoSecs <= 0) {
-    throw new Error('Video duration (videoSecs) is required for PB Vision direct upload');
-  }
+  const pbv = getPBVisionClient();
 
-  const pieces = filePath.split('.');
-  const ext = pieces[pieces.length - 1] || 'mp4';
-  const { uid, useProdServer } = getPbVisionApiKeyParts();
-
-  const makeVideoBody: Record<string, unknown> = {
-    platform: { name: 'api', version: '0.1.14' },
-    userEmails: metadata.userEmails,
-    fileExt: ext,
-    videoSecs: metadata.videoSecs,
-  };
-
-  if (metadata.name != null) makeVideoBody.name = metadata.name;
-  if (metadata.desc != null) makeVideoBody.desc = metadata.desc;
-  if (metadata.gameStartEpoch != null) makeVideoBody.gameStartEpoch = metadata.gameStartEpoch;
-  if (metadata.facility != null) makeVideoBody.facility = metadata.facility;
-  if (metadata.court != null) makeVideoBody.court = metadata.court;
-
-  console.log('[PB Vision] Submitting make_video_id + upload', {
+  console.log('[PB Vision] Submitting uploadVideo', {
     filePath,
-    fileExt: ext,
-    videoSecs: metadata.videoSecs,
     userEmailCount: metadata.userEmails.length,
   });
 
-  const makeResult = (await callPBVisionPartnerApi(
-    'make_video_id',
-    makeVideoBody
-  )) as { hasCredits?: boolean; vid?: string };
-
-  if (makeResult.hasCredits === false) {
+  const result = await pbv.uploadVideo(filePath, toPbvMetadata(metadata));
+  if (result.hasCredits === false) {
     throw new Error('PB Vision credits unavailable for this upload');
   }
-  if (!makeResult.vid) {
-    throw new Error('PB Vision make_video_id did not return a video id');
+  if (!result.vid) {
+    throw new Error('PB Vision upload did not return a video id');
   }
 
-  const bucket = `pbv-uploads${useProdServer ? '' : '-dev'}`;
-  const objectName = `${uid}/${makeResult.vid}.${ext}`;
-  await uploadFileToPbVisionGcs(bucket, objectName, filePath);
+  return { vid: result.vid };
+}
 
-  return { vid: makeResult.vid };
+async function submitViaSignedS3Url(
+  s3Key: string,
+  metadata: PBVisionSubmitMetadata
+): Promise<{ vid: string }> {
+  const signedUrl = await createSignedMp4FetchUrl(s3Key);
+  return submitVideoUrlToPBVision({
+    videoUrl: signedUrl,
+    metadata,
+  });
+}
+
+async function submitViaProxyUrl(
+  s3Key: string,
+  metadata: PBVisionSubmitMetadata
+): Promise<{ vid: string }> {
+  const contentLength = await getS3ObjectContentLength(s3Key);
+  if (contentLength != null && contentLength > MAX_PBV_PROXY_BYTES) {
+    throw new Error(
+      `Video is too large for PB Vision proxy fetch (${contentLength} bytes; max ${MAX_PBV_PROXY_BYTES})`
+    );
+  }
+
+  const proxyUrl = createPbVisionSourceUrl(s3Key);
+  console.log('[PB Vision] Submitting add_video_by_url via proxy URL', {
+    s3_key: s3Key,
+    urlEndsWithMp4: proxyUrl.split('?')[0].endsWith('.mp4'),
+  });
+
+  return submitVideoUrlToPBVision({
+    videoUrl: proxyUrl,
+    metadata,
+  });
 }
 
 export async function submitVideoS3KeyToPBVision({
@@ -236,21 +141,33 @@ export async function submitVideoS3KeyToPBVision({
 }: {
   s3Key: string;
   metadata: PBVisionSubmitMetadata;
-}): Promise<{ vid: string; method: 'url' | 'upload' }> {
+}): Promise<{ vid: string; method: 'url' | 'proxy' | 'upload' }> {
+  await ensureS3ObjectHasVideoMp4ContentType(s3Key);
+
   if (s3Key.toLowerCase().endsWith('.mp4')) {
     try {
-      const signedUrl = await createSignedMp4FetchUrl(s3Key);
-      const result = await submitVideoUrlToPBVision({
-        videoUrl: signedUrl,
-        metadata,
-      });
+      const result = await submitViaSignedS3Url(s3Key, metadata);
       return { vid: result.vid, method: 'url' };
     } catch (error) {
-      if (!shouldFallbackToPbVisionFileUpload(error)) {
+      if (!shouldRetryPbVisionWithAlternateSource(error)) {
         throw error;
       }
 
-      console.warn('[PB Vision] URL submit failed, falling back to direct upload', {
+      console.warn('[PB Vision] Signed S3 URL submit failed, trying proxy URL', {
+        s3_key: s3Key,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
+    try {
+      const result = await submitViaProxyUrl(s3Key, metadata);
+      return { vid: result.vid, method: 'proxy' };
+    } catch (error) {
+      if (!shouldRetryPbVisionWithAlternateSource(error)) {
+        throw error;
+      }
+
+      console.warn('[PB Vision] Proxy URL submit failed, trying direct upload', {
         s3_key: s3Key,
         error: error instanceof Error ? error.message : error,
       });

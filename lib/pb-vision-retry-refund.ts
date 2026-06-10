@@ -611,7 +611,7 @@ export async function runPbVisionSubmissionAttempt({
   }
 
   let pbvVid: string;
-  let submitMethod: 'url' | 'upload' = 'url';
+  let submitMethod: 'url' | 'proxy' | 'upload' = 'url';
   try {
     const submitted = await submitVideoS3KeyToPBVision({
       s3Key,
@@ -622,7 +622,6 @@ export async function runPbVisionSubmissionAttempt({
         gameStartEpoch: metadata.gameStartEpoch,
         facility: metadata.facility,
         court: metadata.court,
-        videoSecs: metadata.clipDurationSeconds,
       },
     });
     pbvVid = submitted.vid;

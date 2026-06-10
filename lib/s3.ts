@@ -69,6 +69,8 @@ export async function createSignedMp4FetchUrl(
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
+    ResponseContentDisposition: 'inline',
+    ResponseContentType: 'video/mp4',
   });
 
   return await getSignedUrl(s3, command, {
@@ -98,6 +100,29 @@ function encodeS3CopySource(sourceKey: string) {
 
 /** PB Vision accepts up to 2GB; keep under serverless memory/time limits. */
 export const MAX_PBV_DIRECT_UPLOAD_BYTES = 800 * 1024 * 1024;
+
+/** Max size served through the PB Vision proxy URL fallback on our origin. */
+export const MAX_PBV_PROXY_BYTES = 400 * 1024 * 1024;
+
+export async function ensureS3ObjectHasVideoMp4ContentType(key: string): Promise<void> {
+  const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  if (head.ContentType?.toLowerCase() === 'video/mp4') {
+    return;
+  }
+
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      CopySource: encodeS3CopySource(key),
+      ContentType: 'video/mp4',
+      MetadataDirective: 'REPLACE',
+      ...(head.Metadata && Object.keys(head.Metadata).length > 0
+        ? { Metadata: head.Metadata }
+        : {}),
+    })
+  );
+}
 
 export async function getS3ObjectContentLength(key: string): Promise<number | null> {
   const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
