@@ -100,6 +100,16 @@ function playerTroveAccessSectionHtml(magicLinkUrl: string) {
   `;
 }
 
+function youtubeUploadNoticeHtml() {
+  return `
+    <p>
+      All purchased video clips are also uploaded to YouTube automatically.
+      When your upload is ready, the YouTube link for each clip will be available on your
+      PlayerTrove page.
+    </p>
+  `;
+}
+
 function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
   const baseUrl = getEmailBaseUrl();
   const playerTroveUrl = buildPlayerTroveMagicLinkUrl(to);
@@ -130,6 +140,8 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
               <a href="${successUrl}">${successUrl}</a>
             </p>
 
+            ${youtubeUploadNoticeHtml()}
+
             ${troveSection}
 
             <h2>Purchased Clips</h2>
@@ -155,6 +167,8 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
               ${clipLabel} ${options.clipCount === 1 ? 'is' : 'are'} now available in your PlayerTrove.
             </p>
 
+            ${youtubeUploadNoticeHtml()}
+
             ${troveSection}
 
             <p>
@@ -173,6 +187,8 @@ function buildEmailHtml(to: string, options: PlayerTroveAccessEmailOptions) {
               Thanks for claiming free access during the ReplayTrove free pilot.
               Your clip is now available in your PlayerTrove.
             </p>
+
+            ${youtubeUploadNoticeHtml()}
 
             ${troveSection}
 
