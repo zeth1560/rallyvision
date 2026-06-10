@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
     '/api/admin/pb-vision-requests/reset': [
       './node_modules/ffmpeg-static/ffmpeg',
     ],
+    '/api/admin/pb-vision-requests/submit': [
+      './node_modules/ffmpeg-static/ffmpeg',
+    ],
     '/api/player-trove/pb-vision/request': [
       './node_modules/ffmpeg-static/ffmpeg',
     ],

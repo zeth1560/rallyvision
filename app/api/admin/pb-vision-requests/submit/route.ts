@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
-import { adminPreparePbVisionRequestForRetry } from '@/lib/pb-vision-admin-reset';
+import { adminSubmitPbVisionRequestSafely } from '@/lib/pb-vision-admin-reset';
+
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const adminUser = await getAdminUser();
@@ -17,19 +19,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'request_id is required' }, { status: 400 });
     }
 
-    const prepared = await adminPreparePbVisionRequestForRetry(requestId);
-    if (!prepared.ok) {
-      return NextResponse.json({ error: prepared.error }, { status: prepared.status });
+    const result = await adminSubmitPbVisionRequestSafely(requestId);
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
     return NextResponse.json({
       success: true,
-      request_id: prepared.request_id,
+      request_id: result.request_id,
+      status: result.status,
+      pbv_vid: result.pbv_vid,
     });
   } catch (error) {
-    console.error('[PB Vision Admin Reset] Route error:', error);
+    console.error('[PB Vision Admin Submit] Route error:', error);
     return NextResponse.json(
-      { error: 'Failed to reset PB Vision request' },
+      { error: 'Failed to submit PB Vision request' },
       { status: 500 }
     );
   }

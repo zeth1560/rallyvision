@@ -342,7 +342,7 @@ export async function handlePbVisionDeliveryFailure(
   await processPbVisionFailureAfterDeliveryError(requestId, reason);
 }
 
-async function markPbVisionSubmissionFailed(requestId: string, reason: string) {
+export async function markPbVisionSubmissionFailed(requestId: string, reason: string) {
   const now = new Date().toISOString();
 
   await supabaseAdmin
@@ -522,7 +522,7 @@ export async function runPbVisionSubmissionAttempt({
     .update({
       submission_attempt_count: attemptNumber,
       last_retry_at: attemptStartedAt,
-      status: 'requested',
+      status: 'processing',
       error_reason: null,
       updated_at: attemptStartedAt,
       notes: notes?.trim() || request.notes,

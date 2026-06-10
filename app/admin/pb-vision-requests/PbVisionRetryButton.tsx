@@ -20,30 +20,42 @@ export default function PbVisionRetryButton({
     setError(null);
 
     try {
-      const response = await fetch('/api/admin/pb-vision-requests/reset', {
+      const resetResponse = await fetch('/api/admin/pb-vision-requests/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_id: requestId }),
       });
-      const result = await parseJsonResponse<{
-        error?: string;
-        accepted?: boolean;
-        message?: string;
-        pbv_vid?: string;
-      }>(response);
+      const resetResult = await parseJsonResponse<{ error?: string }>(resetResponse);
 
-      if (!response.ok) {
-        setError(result.error || 'Reset failed');
+      if (!resetResponse.ok) {
+        setError(resetResult.error || 'Reset failed');
+        return;
+      }
+
+      setMessage('Preparing and submitting video — this may take several minutes…');
+
+      const submitResponse = await fetch('/api/admin/pb-vision-requests/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId }),
+      });
+      const submitResult = await parseJsonResponse<{
+        error?: string;
+        pbv_vid?: string;
+      }>(submitResponse);
+
+      if (!submitResponse.ok) {
+        setError(submitResult.error || 'Submit failed');
+        window.setTimeout(() => window.location.reload(), 1500);
         return;
       }
 
       setMessage(
-        result.message ||
-          (result.pbv_vid
-            ? `Resubmitted successfully (PBV VID: ${result.pbv_vid})`
-            : 'Reset and resubmitted successfully')
+        submitResult.pbv_vid
+          ? `Submitted successfully (PBV VID: ${submitResult.pbv_vid})`
+          : 'Submitted successfully'
       );
-      window.setTimeout(() => window.location.reload(), result.accepted ? 2500 : 1200);
+      window.setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed');
     } finally {
@@ -68,7 +80,7 @@ export default function PbVisionRetryButton({
           opacity: disabled || loading ? 0.65 : 1,
         }}
       >
-        {loading ? 'Resetting...' : 'Reset and resubmit'}
+        {loading ? 'Submitting…' : 'Reset and resubmit'}
       </button>
       {message ? (
         <p style={{ margin: '8px 0 0', color: '#198754', fontSize: '0.9rem' }}>{message}</p>
