@@ -20,5 +20,9 @@ declare module '@pbvision/partner-sdk' {
       videoUrl: string,
       metadata?: VideoMetadata
     ): Promise<{ vid: string; hasCredits?: boolean }>;
+    uploadVideo(
+      mp4Filename: string,
+      metadata?: VideoMetadata
+    ): Promise<{ vid?: string; hasCredits?: boolean }>;
   }
 }

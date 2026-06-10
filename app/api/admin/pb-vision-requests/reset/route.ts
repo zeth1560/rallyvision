@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminUser } from '@/lib/admin/getAdminUser';
 import { adminResetPbVisionRequestForRetry } from '@/lib/pb-vision-admin-reset';
 
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest) {
   const adminUser = await getAdminUser();
 

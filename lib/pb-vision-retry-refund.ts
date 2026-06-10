@@ -1,7 +1,9 @@
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createSignedMp4FetchUrl } from '@/lib/s3';
-import { submitVideoUrlToPBVision, type PBVisionSubmitMetadata } from '@/lib/pbvision';
+import {
+  submitVideoS3KeyToPBVision,
+  type PBVisionSubmitMetadata,
+} from '@/lib/pbvision';
 import { resolveHdDownloadByAccessId } from '@/lib/hd-download';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { sendPbVisionRefundEmail } from '@/lib/email';
@@ -608,37 +610,11 @@ export async function runPbVisionSubmissionAttempt({
     };
   }
 
-  let signedUrl: string;
-  try {
-    signedUrl = await createSignedMp4FetchUrl(s3Key);
-  } catch (signError) {
-    const message = 'Failed to prepare video for PB Vision';
-    console.error('[PB Vision] Signed URL generation failed', {
-      request_id: requestId,
-      attempt: attemptNumber,
-      source,
-      error: signError instanceof Error ? signError.message : signError,
-    });
-    const { exhausted } = await finalizePbVisionSubmissionFailure({
-      requestId,
-      reason: message,
-      attemptNumber,
-      source,
-    });
-    return {
-      ok: false,
-      status: 500,
-      error: exhausted
-        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
-        : message,
-      exhausted,
-    };
-  }
-
   let pbvVid: string;
+  let submitMethod: 'url' | 'upload' = 'url';
   try {
-    const submitted = await submitVideoUrlToPBVision({
-      videoUrl: signedUrl,
+    const submitted = await submitVideoS3KeyToPBVision({
+      s3Key,
       metadata: {
         userEmails: metadata.userEmails,
         name: metadata.name,
@@ -649,6 +625,7 @@ export async function runPbVisionSubmissionAttempt({
       },
     });
     pbvVid = submitted.vid;
+    submitMethod = submitted.method;
   } catch (submitError) {
     const reason =
       submitError instanceof Error ? submitError.message : 'PB Vision submission failed';
@@ -705,6 +682,7 @@ export async function runPbVisionSubmissionAttempt({
     request_id: requestId,
     attempt: attemptNumber,
     source,
+    submit_method: submitMethod,
     clip_id: access.clip_id,
     pbv_vid: pbvVid,
     s3_key: s3Key,

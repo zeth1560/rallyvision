@@ -1,5 +1,16 @@
-import { S3Client, GetObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  GetObjectCommand,
+  CopyObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
 
 const bucket = process.env.AWS_S3_BUCKET!;
 
@@ -83,6 +94,51 @@ export async function createSignedObjectUrl(
 
 function encodeS3CopySource(sourceKey: string) {
   return [bucket, ...sourceKey.split('/')].map(encodeURIComponent).join('/');
+}
+
+/** PB Vision accepts up to 2GB; keep under serverless memory/time limits. */
+export const MAX_PBV_DIRECT_UPLOAD_BYTES = 800 * 1024 * 1024;
+
+export async function getS3ObjectContentLength(key: string): Promise<number | null> {
+  const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  return head.ContentLength ?? null;
+}
+
+export async function downloadS3ObjectToTempFile(key: string): Promise<{
+  filePath: string;
+  cleanup: () => Promise<void>;
+}> {
+  const contentLength = await getS3ObjectContentLength(key);
+  if (contentLength != null && contentLength > MAX_PBV_DIRECT_UPLOAD_BYTES) {
+    throw new Error(
+      `Video file is too large for PB Vision direct upload (${contentLength} bytes; max ${MAX_PBV_DIRECT_UPLOAD_BYTES})`
+    );
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), 'pbv-upload-'));
+  const basename = key.split('/').pop() || 'video.mp4';
+  const filename = basename.toLowerCase().endsWith('.mp4') ? basename : `${basename}.mp4`;
+  const filePath = join(dir, filename);
+
+  const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!response.Body) {
+    await rm(dir, { recursive: true, force: true });
+    throw new Error('S3 object has no body');
+  }
+
+  try {
+    await pipeline(response.Body as Readable, createWriteStream(filePath));
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    filePath,
+    cleanup: async () => {
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 export async function copyObjectWithinBucket(
