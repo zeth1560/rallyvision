@@ -455,3 +455,35 @@ export function getProReviewActionLabel(video: PlayerTroveVideo, now: Date) {
 
   return 'Request Pro Review';
 }
+
+const YOUTUBE_PREPARING_STATUSES = new Set(['pending', 'uploading', 'processing']);
+
+export function isYouTubeWatchReady(video: {
+  youtube_url: string | null;
+  youtube_status: string;
+}) {
+  return video.youtube_status === 'ready' && Boolean(video.youtube_url);
+}
+
+export function getYouTubeButtonLabel(
+  video: { youtube_url: string | null; youtube_status: string },
+  youtubeCustomerEnabled: boolean
+) {
+  if (!youtubeCustomerEnabled) {
+    return 'YouTube (Unavailable)';
+  }
+
+  if (isYouTubeWatchReady(video)) {
+    return 'Watch on YouTube';
+  }
+
+  if (video.youtube_status === 'failed') {
+    return 'YouTube Upload Failed';
+  }
+
+  if (YOUTUBE_PREPARING_STATUSES.has(video.youtube_status)) {
+    return 'Preparing YouTube Video';
+  }
+
+  return 'YouTube N/A';
+}

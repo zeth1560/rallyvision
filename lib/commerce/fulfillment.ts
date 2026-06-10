@@ -32,6 +32,7 @@ import {
 } from '@/lib/commerce/fulfillment-lock';
 import { resolveBaseProductForClip } from '@/lib/commerce/products';
 import { autoSubmitPbVisionAfterPurchase } from '@/lib/pb-vision-request';
+import { createYouTubeUploadJobForAccess } from '@/lib/youtube-upload-job';
 import type Stripe from 'stripe';
 
 const FULL_GAME_MIN_SECONDS = 5 * 60;
@@ -516,13 +517,53 @@ export async function fulfillStripeCheckoutSession({
 
     const copyMeta = copyResults.get(clipId);
     if (copyMeta && accessId) {
-      await supabaseAdmin
+      const { error: purchasedCopyError } = await supabaseAdmin
         .from('player_video_access')
         .update({
           purchased_s3_key: copyMeta.purchased_s3_key,
           purchased_copy_created_at: copyMeta.purchased_copy_created_at,
         })
         .eq('id', accessId);
+
+      if (purchasedCopyError) {
+        console.error('[Fulfillment] Failed to update purchased copy metadata', {
+          access_id: accessId,
+          clip_id: clipId,
+          error: purchasedCopyError.message,
+        });
+      } else {
+        try {
+          const youtubeJobResult = await createYouTubeUploadJobForAccess({
+            id: accessId,
+            email: normalizedEmail,
+            clip_id: clipId,
+            purchased_s3_key: copyMeta.purchased_s3_key,
+          });
+
+          if (!youtubeJobResult.ok) {
+            console.error('[Fulfillment] YouTube upload job creation failed', {
+              access_id: accessId,
+              clip_id: clipId,
+              error: youtubeJobResult.error,
+            });
+          } else if (youtubeJobResult.created) {
+            console.log('[Fulfillment] YouTube upload job created', {
+              access_id: accessId,
+              clip_id: clipId,
+              job_id: youtubeJobResult.jobId,
+            });
+          }
+        } catch (youtubeJobError) {
+          console.error('[Fulfillment] YouTube upload job error', {
+            access_id: accessId,
+            clip_id: clipId,
+            error:
+              youtubeJobError instanceof Error
+                ? youtubeJobError.message
+                : youtubeJobError,
+          });
+        }
+      }
     }
 
     logEntitlementGrant({

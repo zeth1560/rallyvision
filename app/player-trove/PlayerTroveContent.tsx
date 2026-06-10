@@ -6,10 +6,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReplayTrovePageShell from '@/app/components/ReplayTrovePageShell';
 import { formatDuration } from '@/lib/format';
 import {
+  getYouTubeButtonLabel,
   hasPbVisionRefund,
   isPbVisionAutoRetryPending,
   isPbVisionAwaitingAutoSubmit,
   isPbVisionProcessing,
+  isYouTubeWatchReady,
 } from '@/lib/player-trove-display';
 
 const ProReviewRequestModal = dynamic(
@@ -316,7 +318,9 @@ function VideoCard({
   const coachReviewExpired =
     coachReviewPurchased &&
     (!video.coach_review_expires_at || new Date(video.coach_review_expires_at) < now);
-  const youtubeReady = video.youtube_url && video.youtube_status === 'ready';
+  const youtubeReady = isYouTubeWatchReady(video);
+  const youtubeLabel = getYouTubeButtonLabel(video, youtubeCustomerEnabled);
+  const youtubeFailed = video.youtube_status === 'failed';
   const isDownloading = downloadingAccessId === video.access_id;
   const isPbVisionLoading = pbVisionLoadingAccessId === video.access_id;
   const pbVisionLabel = getPbVisionButtonLabel(video, now);
@@ -542,8 +546,12 @@ function VideoCard({
             borderRadius: '8px',
             border: 'none',
             background:
-              youtubeCustomerEnabled && youtubeReady ? '#ff0000' : '#ccc',
-            color: youtubeCustomerEnabled && youtubeReady ? 'white' : '#666',
+              youtubeCustomerEnabled && youtubeReady
+                ? '#ff0000'
+                : youtubeCustomerEnabled && youtubeFailed
+                  ? '#dc3545'
+                  : '#ccc',
+            color: youtubeCustomerEnabled && (youtubeReady || youtubeFailed) ? 'white' : '#666',
             cursor:
               youtubeCustomerEnabled && youtubeReady ? 'pointer' : 'not-allowed',
             fontSize: '13px',
@@ -554,11 +562,7 @@ function VideoCard({
             }
           }}
         >
-          {!youtubeCustomerEnabled
-            ? 'YouTube (Unavailable)'
-            : youtubeReady
-              ? 'YouTube'
-              : 'YouTube N/A'}
+          {youtubeLabel}
         </button>
 
         <button

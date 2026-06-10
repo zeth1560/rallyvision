@@ -11,6 +11,7 @@ import {
   grantBaseProductEntitlementsForFreeAccess,
 } from '@/lib/commerce/fulfillment';
 import { logEntitlementGrant } from '@/lib/commerce/entitlements';
+import { createYouTubeUploadJobForAccess } from '@/lib/youtube-upload-job';
 import {
   PurchaseValidationError,
   validateFreeCheckoutEntitlements,
@@ -494,6 +495,41 @@ export async function POST(request: NextRequest) {
             purchased_s3_key: purchasedS3Key,
             timestamp: new Date().toISOString(),
           });
+
+          try {
+            const youtubeJobResult = await createYouTubeUploadJobForAccess({
+              id: record.id,
+              email,
+              clip_id: record.clipId,
+              purchased_s3_key: purchasedS3Key,
+            });
+
+            if (!youtubeJobResult.ok) {
+              console.error('[FREE_CHECKOUT] YouTube upload job creation failed', {
+                access_id: record.id,
+                clip_id: record.clipId,
+                error: youtubeJobResult.error,
+                timestamp: new Date().toISOString(),
+              });
+            } else if (youtubeJobResult.created) {
+              console.log('[FREE_CHECKOUT] YouTube upload job created', {
+                access_id: record.id,
+                clip_id: record.clipId,
+                job_id: youtubeJobResult.jobId,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } catch (youtubeJobError) {
+            console.error('[FREE_CHECKOUT] YouTube upload job error', {
+              access_id: record.id,
+              clip_id: record.clipId,
+              error:
+                youtubeJobError instanceof Error
+                  ? youtubeJobError.message
+                  : youtubeJobError,
+              timestamp: new Date().toISOString(),
+            });
+          }
         }
       } catch (copyError) {
         console.error('[FREE_CHECKOUT] S3 copy failed', {

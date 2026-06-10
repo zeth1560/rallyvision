@@ -9,6 +9,7 @@ import {
   grantBaseProductEntitlementsForFreeAccess,
 } from '@/lib/commerce/fulfillment';
 import { logEntitlementGrant } from '@/lib/commerce/entitlements';
+import { createYouTubeUploadJobForAccess } from '@/lib/youtube-upload-job';
 
 export async function POST(request: Request) {
   try {
@@ -257,6 +258,38 @@ export async function POST(request: Request) {
           access_id: accessRecord.id,
           purchased_s3_key: purchasedS3Key,
         });
+
+        try {
+          const youtubeJobResult = await createYouTubeUploadJobForAccess({
+            id: accessRecord.id,
+            email,
+            clip_id: clipId,
+            purchased_s3_key: purchasedS3Key,
+          });
+
+          if (!youtubeJobResult.ok) {
+            console.error('YouTube upload job creation failed', {
+              access_id: accessRecord.id,
+              clip_id: clipId,
+              error: youtubeJobResult.error,
+            });
+          } else if (youtubeJobResult.created) {
+            console.log('YouTube upload job created', {
+              access_id: accessRecord.id,
+              clip_id: clipId,
+              job_id: youtubeJobResult.jobId,
+            });
+          }
+        } catch (youtubeJobError) {
+          console.error('YouTube upload job error', {
+            access_id: accessRecord.id,
+            clip_id: clipId,
+            error:
+              youtubeJobError instanceof Error
+                ? youtubeJobError.message
+                : youtubeJobError,
+          });
+        }
       }
     } catch (copyError) {
       console.error('S3 copy failed', {
