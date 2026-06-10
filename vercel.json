@@ -1,10 +1,6 @@
 {
   "functions": {
-    "app/api/admin/pb-vision-requests/reset/route.ts": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "app/api/admin/pb-vision-requests/submit/route.ts": {
+    "app/api/admin/pb-vision-requests/retry/route.ts": {
       "maxDuration": 300,
       "memory": 3009
     },

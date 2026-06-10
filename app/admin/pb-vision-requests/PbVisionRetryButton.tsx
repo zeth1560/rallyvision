@@ -5,59 +5,53 @@ import { parseJsonResponse } from '@/lib/parse-json-response';
 
 export default function PbVisionRetryButton({
   requestId,
+  status,
   disabled = false,
 }: {
   requestId: string;
+  status: string;
   disabled?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleReset() {
+  const isStuck =
+    status === 'requested' || status === 'processing';
+  const label = isStuck ? 'Retry submission' : 'Reset and resubmit';
+
+  async function handleRetry() {
     setLoading(true);
     setMessage(null);
     setError(null);
 
     try {
-      const resetResponse = await fetch('/api/admin/pb-vision-requests/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId }),
-      });
-      const resetResult = await parseJsonResponse<{ error?: string }>(resetResponse);
-
-      if (!resetResponse.ok) {
-        setError(resetResult.error || 'Reset failed');
-        return;
-      }
-
       setMessage('Preparing and submitting video — this may take several minutes…');
 
-      const submitResponse = await fetch('/api/admin/pb-vision-requests/submit', {
+      const response = await fetch('/api/admin/pb-vision-requests/retry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_id: requestId }),
       });
-      const submitResult = await parseJsonResponse<{
+      const result = await parseJsonResponse<{
         error?: string;
         pbv_vid?: string;
-      }>(submitResponse);
+      }>(response);
 
-      if (!submitResponse.ok) {
-        setError(submitResult.error || 'Submit failed');
+      if (!response.ok) {
+        setError(result.error || 'Retry failed');
         window.setTimeout(() => window.location.reload(), 1500);
         return;
       }
 
       setMessage(
-        submitResult.pbv_vid
-          ? `Submitted successfully (PBV VID: ${submitResult.pbv_vid})`
+        result.pbv_vid
+          ? `Submitted successfully (PBV VID: ${result.pbv_vid})`
           : 'Submitted successfully'
       );
       window.setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reset failed');
+      setError(err instanceof Error ? err.message : 'Retry failed');
     } finally {
       setLoading(false);
     }
@@ -65,10 +59,15 @@ export default function PbVisionRetryButton({
 
   return (
     <div style={{ marginTop: '12px' }}>
+      {isStuck ? (
+        <p style={{ margin: '0 0 8px', color: '#856404', fontSize: '0.9rem' }}>
+          This request appears stuck. Click retry to run submission again.
+        </p>
+      ) : null}
       <button
         type="button"
         disabled={disabled || loading}
-        onClick={handleReset}
+        onClick={handleRetry}
         style={{
           padding: '8px 12px',
           borderRadius: '8px',
@@ -80,7 +79,7 @@ export default function PbVisionRetryButton({
           opacity: disabled || loading ? 0.65 : 1,
         }}
       >
-        {loading ? 'Submitting…' : 'Reset and resubmit'}
+        {loading ? 'Submitting…' : label}
       </button>
       {message ? (
         <p style={{ margin: '8px 0 0', color: '#198754', fontSize: '0.9rem' }}>{message}</p>

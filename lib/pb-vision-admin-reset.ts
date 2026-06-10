@@ -21,7 +21,8 @@ export async function adminPreparePbVisionRequestForRetry(requestId: string) {
   }
 
   const resetOk = await resetPbVisionRequestAfterRepurchase(
-    request.player_video_access_id
+    request.player_video_access_id,
+    { status: 'processing' }
   );
   if (!resetOk) {
     return {
@@ -88,25 +89,15 @@ export async function adminSubmitPbVisionRequestSafely(requestId: string) {
   }
 }
 
-export async function adminResetPbVisionRequestForRetry(requestId: string) {
+export async function adminRetryPbVisionRequest(requestId: string) {
   const prepared = await adminPreparePbVisionRequestForRetry(requestId);
   if (!prepared.ok) {
     return prepared;
   }
 
-  const submitResult = await adminSubmitPbVisionRequestSafely(requestId);
-  if (!submitResult.ok) {
-    return {
-      ok: false as const,
-      status: submitResult.status,
-      error: submitResult.error,
-    };
-  }
+  return adminSubmitPbVisionRequestSafely(requestId);
+}
 
-  return {
-    ok: true as const,
-    request_id: submitResult.request_id,
-    status: submitResult.status,
-    pbv_vid: submitResult.pbv_vid,
-  };
+export async function adminResetPbVisionRequestForRetry(requestId: string) {
+  return adminRetryPbVisionRequest(requestId);
 }

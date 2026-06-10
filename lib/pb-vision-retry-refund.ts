@@ -365,6 +365,26 @@ function shouldAutoRefundPbVision(source: PbVisionSubmissionSource) {
   return source !== 'admin_retry';
 }
 
+async function returnPbVisionSubmissionError({
+  requestId,
+  source,
+  status,
+  error,
+  exhausted,
+}: {
+  requestId: string;
+  source: PbVisionSubmissionSource;
+  status: number;
+  error: string;
+  exhausted?: boolean;
+}): Promise<Extract<PbVisionSubmissionAttemptResult, { ok: false }>> {
+  if (source === 'admin_retry') {
+    await markPbVisionSubmissionFailed(requestId, error);
+  }
+
+  return { ok: false, status, error, exhausted };
+}
+
 async function finalizePbVisionSubmissionFailure({
   requestId,
   reason,
@@ -436,17 +456,23 @@ export async function runPbVisionSubmissionAttempt({
 }): Promise<PbVisionSubmissionAttemptResult> {
   const request = await loadPbVisionRequest(requestId);
   if (!request) {
-    return { ok: false, status: 404, error: 'PB Vision request not found' };
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
+      status: 404,
+      error: 'PB Vision request not found',
+    });
   }
 
   if (refundCompleted(request.refund_status)) {
-    return {
-      ok: false,
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
       status: 410,
       error:
         'PB Vision analysis could not be delivered. Your purchase has been refunded.',
       exhausted: true,
-    };
+    });
   }
 
   if (request.status === 'completed') {
@@ -471,33 +497,50 @@ export async function runPbVisionSubmissionAttempt({
 
   const access = await loadAccessForRequest(request.player_video_access_id);
   if (!access) {
-    return { ok: false, status: 404, error: 'Access record not found' };
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
+      status: 404,
+      error: 'Access record not found',
+    });
   }
 
   const accessEmail = (access.email ?? '').toLowerCase().trim();
 
   if (viewerEmail && accessEmail !== viewerEmail.toLowerCase().trim()) {
-    return { ok: false, status: 403, error: 'You do not have access to this clip' };
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
+      status: 403,
+      error: 'You do not have access to this clip',
+    });
   }
 
   if (access.access_status !== 'active') {
-    return { ok: false, status: 403, error: 'You do not have access to this clip' };
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
+      status: 403,
+      error: 'You do not have access to this clip',
+    });
   }
 
   if (!hasPbVisionPurchaseAccess(access)) {
-    return {
-      ok: false,
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
       status: 403,
       error: 'PB Vision analysis has not been purchased for this clip',
-    };
+    });
   }
 
   if (isPbVisionExpired(access.pb_vision_expires_at)) {
-    return {
-      ok: false,
+    return returnPbVisionSubmissionError({
+      requestId,
+      source,
       status: 403,
       error: 'Your PB Vision access has expired for this clip',
-    };
+    });
   }
 
   if (
@@ -698,8 +741,12 @@ export async function runPbVisionSubmissionAttempt({
   };
 }
 
-export async function resetPbVisionRequestAfterRepurchase(accessId: string) {
+export async function resetPbVisionRequestAfterRepurchase(
+  accessId: string,
+  options?: { status?: 'requested' | 'processing' }
+) {
   const now = new Date().toISOString();
+  const statusAfterReset = options?.status ?? 'requested';
 
   const { data: existing, error } = await supabaseAdmin
     .from('pb_vision_requests')
@@ -714,7 +761,7 @@ export async function resetPbVisionRequestAfterRepurchase(accessId: string) {
   const { error: updateError } = await supabaseAdmin
     .from('pb_vision_requests')
     .update({
-      status: 'requested',
+      status: statusAfterReset,
       refund_status: null,
       stripe_refund_id: null,
       refunded_at: null,

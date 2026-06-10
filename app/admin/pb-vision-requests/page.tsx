@@ -398,8 +398,13 @@ export default async function AdminPbVisionRequestsPage({
 
                   {request.refund_status === 'completed' ||
                   request.refund_status === 'skipped_free' ||
-                  request.status === 'failed' ? (
-                    <PbVisionRetryButton requestId={request.id} />
+                  request.status === 'failed' ||
+                  request.status === 'requested' ||
+                  request.status === 'processing' ? (
+                    <PbVisionRetryButton
+                      requestId={request.id}
+                      status={request.status}
+                    />
                   ) : null}
                 </div>
               );

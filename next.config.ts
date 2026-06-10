@@ -2,10 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
-    '/api/admin/pb-vision-requests/reset': [
-      './node_modules/ffmpeg-static/ffmpeg',
-    ],
-    '/api/admin/pb-vision-requests/submit': [
+    '/api/admin/pb-vision-requests/retry': [
       './node_modules/ffmpeg-static/ffmpeg',
     ],
     '/api/player-trove/pb-vision/request': [
