@@ -200,16 +200,6 @@ export async function autoSubmitPbVisionAfterPurchase({
     };
   }
 
-  if (existingRequest?.status === 'failed') {
-    return {
-      ok: true,
-      request_id: existingRequest.id,
-      status: existingRequest.status,
-      pbv_vid: null,
-      pbv_webpage_url: null,
-    };
-  }
-
   const ensured = await ensurePbVisionRequestRow({
     accessId,
     accessEmail,

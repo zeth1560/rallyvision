@@ -58,8 +58,6 @@ export async function createSignedMp4FetchUrl(
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
-    ResponseContentDisposition: 'inline',
-    ResponseContentType: 'video/mp4',
   });
 
   return await getSignedUrl(s3, command, {

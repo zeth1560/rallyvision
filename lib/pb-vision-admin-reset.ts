@@ -3,8 +3,10 @@ import {
   loadPaidPbVisionPurchasesForClips,
   repairMissingPbVisionEntitlement,
 } from '@/lib/commerce/pb-vision-entitlements';
-import { autoSubmitPbVisionAfterPurchase } from '@/lib/pb-vision-request';
-import { resetPbVisionRequestAfterRepurchase } from '@/lib/pb-vision-retry-refund';
+import {
+  resetPbVisionRequestAfterRepurchase,
+  runPbVisionSubmissionAttempt,
+} from '@/lib/pb-vision-retry-refund';
 
 export async function adminResetPbVisionRequestForRetry(requestId: string) {
   const { data: request, error } = await supabaseAdmin
@@ -37,9 +39,9 @@ export async function adminResetPbVisionRequestForRetry(requestId: string) {
     await repairMissingPbVisionEntitlement(request.player_video_access_id, purchase);
   }
 
-  const submitResult = await autoSubmitPbVisionAfterPurchase({
-    accessId: request.player_video_access_id,
-    email: request.email,
+  const submitResult = await runPbVisionSubmissionAttempt({
+    requestId: request.id,
+    source: 'admin_retry',
   });
 
   if (!submitResult.ok) {

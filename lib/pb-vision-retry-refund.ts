@@ -331,6 +331,11 @@ export async function handlePbVisionDeliveryFailure(
   requestId: string,
   reason: string
 ): Promise<void> {
+  await markPbVisionSubmissionFailed(requestId, reason);
+  await processPbVisionFailureAfterDeliveryError(requestId, reason);
+}
+
+async function markPbVisionSubmissionFailed(requestId: string, reason: string) {
   const now = new Date().toISOString();
 
   await supabaseAdmin
@@ -341,8 +346,40 @@ export async function handlePbVisionDeliveryFailure(
       updated_at: now,
     })
     .eq('id', requestId);
+}
 
-  await processPbVisionFailureAfterDeliveryError(requestId, reason);
+type PbVisionSubmissionSource =
+  | 'user'
+  | 'auto_retry'
+  | 'auto_purchase'
+  | 'admin_retry';
+
+function shouldAutoRefundPbVision(source: PbVisionSubmissionSource) {
+  return source !== 'admin_retry';
+}
+
+async function finalizePbVisionSubmissionFailure({
+  requestId,
+  reason,
+  attemptNumber,
+  source,
+}: {
+  requestId: string;
+  reason: string;
+  attemptNumber: number;
+  source: PbVisionSubmissionSource;
+}) {
+  await markPbVisionSubmissionFailed(requestId, reason);
+
+  if (
+    shouldAutoRefundPbVision(source) &&
+    attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS
+  ) {
+    await refundPbVisionAfterFailedDelivery(requestId, reason);
+    return { exhausted: true };
+  }
+
+  return { exhausted: false };
 }
 
 export async function processPbVisionFailureAfterDeliveryError(
@@ -388,7 +425,7 @@ export async function runPbVisionSubmissionAttempt({
   requestId: string;
   viewerEmail?: string;
   notes?: string | null;
-  source?: 'user' | 'auto_retry' | 'auto_purchase';
+  source?: PbVisionSubmissionSource;
 }): Promise<PbVisionSubmissionAttemptResult> {
   const request = await loadPbVisionRequest(requestId);
   if (!request) {
@@ -456,7 +493,10 @@ export async function runPbVisionSubmissionAttempt({
     };
   }
 
-  if (request.submission_attempt_count >= MAX_PB_VISION_SUBMISSION_ATTEMPTS) {
+  if (
+    shouldAutoRefundPbVision(source) &&
+    request.submission_attempt_count >= MAX_PB_VISION_SUBMISSION_ATTEMPTS
+  ) {
     await refundPbVisionAfterFailedDelivery(requestId);
     return {
       ok: false,
@@ -484,19 +524,28 @@ export async function runPbVisionSubmissionAttempt({
 
   const hdResolved = await resolveHdDownloadByAccessId(
     access.id,
-    source === 'auto_retry' || source === 'auto_purchase'
+    source === 'auto_retry' ||
+    source === 'auto_purchase' ||
+    source === 'admin_retry'
       ? '/internal/pb-vision/auto-submit'
       : '/api/player-trove/pb-vision/request',
     accessEmail
   );
 
   if (!hdResolved.ok) {
-    await handlePbVisionDeliveryFailure(requestId, hdResolved.error);
+    const { exhausted } = await finalizePbVisionSubmissionFailure({
+      requestId,
+      reason: hdResolved.error,
+      attemptNumber,
+      source,
+    });
     return {
       ok: false,
       status: hdResolved.status,
-      error: hdResolved.error,
-      exhausted: attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS,
+      error: exhausted
+        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
+        : hdResolved.error,
+      exhausted,
     };
   }
 
@@ -504,19 +553,26 @@ export async function runPbVisionSubmissionAttempt({
 
   if (!s3Key.toLowerCase().endsWith('.mp4')) {
     const message = 'Video file must be an MP4 for PB Vision analysis';
-    await handlePbVisionDeliveryFailure(requestId, message);
+    const { exhausted } = await finalizePbVisionSubmissionFailure({
+      requestId,
+      reason: message,
+      attemptNumber,
+      source,
+    });
     return {
       ok: false,
       status: 400,
-      error: message,
-      exhausted: attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS,
+      error: exhausted
+        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
+        : message,
+      exhausted,
     };
   }
 
   const clip = await fetchClipMetadata(access.clip_id);
   if (!clip) {
     const message = 'Clip not found';
-    await handlePbVisionDeliveryFailure(requestId, message);
+    await markPbVisionSubmissionFailed(requestId, message);
     return { ok: false, status: 404, error: message };
   }
 
@@ -532,12 +588,19 @@ export async function runPbVisionSubmissionAttempt({
 
   if (metadata.videoSecs == null) {
     const message = 'Video duration is required for PB Vision analysis';
-    await handlePbVisionDeliveryFailure(requestId, message);
+    const { exhausted } = await finalizePbVisionSubmissionFailure({
+      requestId,
+      reason: message,
+      attemptNumber,
+      source,
+    });
     return {
       ok: false,
       status: 400,
-      error: message,
-      exhausted: attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS,
+      error: exhausted
+        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
+        : message,
+      exhausted,
     };
   }
 
@@ -552,12 +615,19 @@ export async function runPbVisionSubmissionAttempt({
       source,
       error: signError instanceof Error ? signError.message : signError,
     });
-    await handlePbVisionDeliveryFailure(requestId, message);
+    const { exhausted } = await finalizePbVisionSubmissionFailure({
+      requestId,
+      reason: message,
+      attemptNumber,
+      source,
+    });
     return {
       ok: false,
       status: 500,
-      error: message,
-      exhausted: attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS,
+      error: exhausted
+        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
+        : message,
+      exhausted,
     };
   }
 
@@ -577,16 +647,16 @@ export async function runPbVisionSubmissionAttempt({
       attempt: attemptNumber,
       source,
       s3_key: s3Key,
+      video_secs: metadata.videoSecs,
       error: reason,
     });
 
-    await handlePbVisionDeliveryFailure(requestId, reason);
-
-    const refreshed = await loadPbVisionRequest(requestId);
-    const exhausted =
-      (refreshed?.submission_attempt_count ?? attemptNumber) >=
-        MAX_PB_VISION_SUBMISSION_ATTEMPTS ||
-      refundCompleted(refreshed?.refund_status ?? null);
+    const { exhausted } = await finalizePbVisionSubmissionFailure({
+      requestId,
+      reason,
+      attemptNumber,
+      source,
+    });
 
     return {
       ok: false,

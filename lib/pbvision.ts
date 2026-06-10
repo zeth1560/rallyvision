@@ -98,7 +98,16 @@ export async function submitVideoUrlToPBVision({
   if (gameStartEpoch != null) body.gameStartEpoch = gameStartEpoch;
   if (facility != null) body.facility = facility;
   if (court != null) body.court = court;
-  if (videoSecs != null) body.videoSecs = videoSecs;
+  if (videoSecs != null) {
+    body.videoSecs = videoSecs;
+    body.video_secs = videoSecs;
+  }
+
+  console.log('[PB Vision] Submitting add_video_by_url', {
+    videoSecs,
+    userEmailCount: userEmails.length,
+    urlEndsWithMp4: videoUrl.split('?')[0].endsWith('.mp4'),
+  });
 
   const result = await callPBVisionPartnerApi('add_video_by_url', body);
   return { vid: result.vid as string };
