@@ -15,6 +15,7 @@ import {
 } from '@/lib/commerce/pb-vision-entitlements';
 import { resolveUpsellOffers } from '@/lib/commerce/player-trove-upsell';
 import { getFeatureFlags } from '@/lib/feature-flags';
+import { getPbVisionFailureNoticeForCustomer } from '@/lib/pb-vision-customer-message';
 
 function getThumbnailContentType(key: string) {
   const lower = key.toLowerCase();
@@ -466,7 +467,7 @@ export async function fetchPlayerTroveVideosForEmail(email: string) {
         pb_vision_request_id: pbVision?.id ?? null,
         pb_vision_status: pbVision?.status ?? null,
         pb_vision_webpage_url: pbVision?.pbv_webpage_url ?? null,
-        pb_vision_error_reason: pbVision?.error_reason ?? null,
+        pb_vision_error_reason: getPbVisionFailureNoticeForCustomer(pbVision),
         pb_vision_refund_status: pbVision?.refund_status ?? null,
         pb_vision_submission_attempt_count: pbVision?.submission_attempt_count ?? 0,
         coach_review_expires_at: record.coach_review_expires_at,

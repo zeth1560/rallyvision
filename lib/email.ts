@@ -272,13 +272,11 @@ export async function sendPbVisionRefundEmail({
   clipLabel,
   refundAmountCents,
   refundStatus,
-  errorReason,
 }: {
   email: string;
   clipLabel: string;
   refundAmountCents: number;
   refundStatus: 'completed' | 'skipped_free' | 'failed' | 'not_applicable';
-  errorReason?: string | null;
 }) {
   const configIssues = getPlayerTroveEmailConfigIssues();
   if (configIssues.length > 0) {
@@ -307,11 +305,6 @@ export async function sendPbVisionRefundEmail({
         three times without success, so we stopped retrying.
       </p>
       <p>${refundLine}</p>
-      ${
-        errorReason
-          ? `<p style="color: #666; font-size: 14px;">Technical detail: ${errorReason}</p>`
-          : ''
-      }
       <p>
         You can purchase PB Vision again from PlayerTrove if you would like to try again later.
       </p>

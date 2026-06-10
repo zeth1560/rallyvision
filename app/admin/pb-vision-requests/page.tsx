@@ -49,6 +49,7 @@ type PbVisionRequestRow = {
   stripe_refund_id: string | null;
   refunded_at: string | null;
   player_video_access_id: string;
+  shared_from_request_id: string | null;
   clips: ClipRelation | ClipRelation[] | null;
   player_video_access: AccessRelation | AccessRelation[] | null;
 };
@@ -143,6 +144,7 @@ export default async function AdminPbVisionRequestsPage({
       stripe_refund_id,
       refunded_at,
       player_video_access_id,
+      shared_from_request_id,
       clips (id, title, slug),
       player_video_access (id, access_status, pb_vision_expires_at)
     `
@@ -356,6 +358,11 @@ export default async function AdminPbVisionRequestsPage({
                     <div style={{ wordBreak: 'break-all' }}>
                       <strong>Source S3 key:</strong> {request.source_s3_key || '—'}
                     </div>
+                    {request.shared_from_request_id ? (
+                      <div style={{ wordBreak: 'break-all' }}>
+                        <strong>Shared from:</strong> {request.shared_from_request_id}
+                      </div>
+                    ) : null}
                     {access ? (
                       <div>
                         <strong>Access:</strong> {access.access_status || '—'}

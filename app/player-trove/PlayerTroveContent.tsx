@@ -13,6 +13,7 @@ import {
   isPbVisionProcessing,
   isYouTubeWatchReady,
 } from '@/lib/player-trove-display';
+import { toCustomerFacingPbVisionError } from '@/lib/pb-vision-customer-message';
 
 const ProReviewRequestModal = dynamic(
   () => import('@/app/player-trove/ProReviewRequestModal'),
@@ -1089,7 +1090,9 @@ export default function PlayerTroveContent({
       const result = await response.json();
 
       if (!response.ok) {
-        const errorMsg = result?.error || `HTTP ${response.status}`;
+        const errorMsg = toCustomerFacingPbVisionError(
+          result?.error || `HTTP ${response.status}`
+        );
         setPbVisionErrors((prev) => ({ ...prev, [video.access_id]: errorMsg }));
         return;
       }

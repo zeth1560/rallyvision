@@ -24,5 +24,11 @@ declare module '@pbvision/partner-sdk' {
       mp4Filename: string,
       metadata?: VideoMetadata
     ): Promise<{ vid?: string; hasCredits?: boolean }>;
+    getVideoEditors(vid: string): Promise<unknown>;
+    setVideoEditors(
+      vid: string,
+      editorEmails: string[],
+      viewerEmails: string[]
+    ): Promise<unknown>;
   }
 }

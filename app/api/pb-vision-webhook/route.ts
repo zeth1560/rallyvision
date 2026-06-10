@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { syncPbVisionEditorsForVid } from '@/lib/pb-vision-clip-sharing';
 import { processPbVisionFailureAfterDeliveryError } from '@/lib/pb-vision-retry-refund';
 
 type PbVisionCallback = {
@@ -57,8 +58,7 @@ export async function POST(request: NextRequest) {
     .from('pb_vision_requests')
     .update(updatePayload)
     .eq('pbv_vid', pbvVid)
-    .select('id')
-    .maybeSingle();
+    .select('id, shared_from_request_id');
 
   if (error) {
     console.error('[PB Vision Webhook] Database update failed', {
@@ -68,19 +68,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Update failed' }, { status: 500 });
   }
 
-  if (!data) {
+  const updatedRows = data ?? [];
+
+  if (updatedRows.length === 0) {
     console.warn('[PB Vision Webhook] No matching request for vid', {
       pbv_vid: pbvVid,
     });
   } else {
-    console.log('[PB Vision Webhook] Request updated', {
-      request_id: data.id,
+    console.log('[PB Vision Webhook] Requests updated', {
       pbv_vid: pbvVid,
+      request_count: updatedRows.length,
       status: updatePayload.status,
     });
 
-    if (hasError) {
-      const requestId = data.id as string;
+    if (!hasError) {
+      after(async () => {
+        try {
+          await syncPbVisionEditorsForVid(pbvVid);
+        } catch (syncError) {
+          console.error('[PB Vision Webhook] Editor sync failed', {
+            pbv_vid: pbvVid,
+            error: syncError instanceof Error ? syncError.message : syncError,
+          });
+        }
+      });
+    }
+
+    const primaryRequest = updatedRows.find((row) => !row.shared_from_request_id);
+
+    if (hasError && primaryRequest?.id) {
+      const requestId = primaryRequest.id as string;
       const failureReason =
         typeof body.error?.reason === 'string'
           ? body.error.reason

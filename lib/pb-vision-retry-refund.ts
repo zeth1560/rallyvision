@@ -8,6 +8,13 @@ import {
 import { resolveHdDownloadByAccessId } from '@/lib/hd-download';
 import { hasPbVisionPurchaseAccess } from '@/lib/commerce/entitlements';
 import { sendPbVisionRefundEmail } from '@/lib/email';
+import { toCustomerFacingPbVisionError } from '@/lib/pb-vision-customer-message';
+import {
+  loadSharedPbVisionRequestIds,
+  syncPbVisionEditorsForVid,
+  tryAttachPbVisionRequestToExistingClipSubmission,
+  updateSharedRequestsForPrimaryVid,
+} from '@/lib/pb-vision-clip-sharing';
 
 export const MAX_PB_VISION_SUBMISSION_ATTEMPTS = 3;
 
@@ -25,6 +32,7 @@ type PbVisionRequestRow = {
   refund_status: string | null;
   stripe_refund_id: string | null;
   notes: string | null;
+  shared_from_request_id: string | null;
 };
 
 type ClipMetadata = {
@@ -132,7 +140,7 @@ async function loadPbVisionRequest(requestId: string): Promise<PbVisionRequestRo
   const { data, error } = await supabaseAdmin
     .from('pb_vision_requests')
     .select(
-      'id, player_video_access_id, email, clip_id, status, submission_attempt_count, refund_status, stripe_refund_id, notes'
+      'id, player_video_access_id, email, clip_id, status, submission_attempt_count, refund_status, stripe_refund_id, notes, shared_from_request_id'
     )
     .eq('id', requestId)
     .maybeSingle();
@@ -317,7 +325,6 @@ export async function refundPbVisionAfterFailedDelivery(
       clipLabel,
       refundAmountCents,
       refundStatus,
-      errorReason: errorReason ?? null,
     });
   } catch (emailError) {
     console.error('[PB Vision Refund] Refund email failed', {
@@ -332,6 +339,19 @@ export async function refundPbVisionAfterFailedDelivery(
     stripe_refund_id: stripeRefundId,
     refund_amount_cents: refundAmountCents,
   });
+
+  const { data: requestRow } = await supabaseAdmin
+    .from('pb_vision_requests')
+    .select('shared_from_request_id')
+    .eq('id', requestId)
+    .maybeSingle();
+
+  if (!requestRow?.shared_from_request_id) {
+    const sharedRequestIds = await loadSharedPbVisionRequestIds(requestId);
+    for (const sharedRequestId of sharedRequestIds) {
+      await refundPbVisionAfterFailedDelivery(sharedRequestId, errorReason);
+    }
+  }
 }
 
 export async function handlePbVisionDeliveryFailure(
@@ -365,6 +385,18 @@ function shouldAutoRefundPbVision(source: PbVisionSubmissionSource) {
   return source !== 'admin_retry';
 }
 
+function customerFacingAttemptError(
+  error: string,
+  source: PbVisionSubmissionSource,
+  exhausted?: boolean
+): string {
+  if (exhausted) {
+    return 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.';
+  }
+
+  return source === 'user' ? toCustomerFacingPbVisionError(error) : error;
+}
+
 async function returnPbVisionSubmissionError({
   requestId,
   source,
@@ -382,7 +414,10 @@ async function returnPbVisionSubmissionError({
     await markPbVisionSubmissionFailed(requestId, error);
   }
 
-  return { ok: false, status, error, exhausted };
+  const customerError =
+    source === 'user' ? toCustomerFacingPbVisionError(error) : error;
+
+  return { ok: false, status, error: customerError, exhausted };
 }
 
 async function finalizePbVisionSubmissionFailure({
@@ -415,6 +450,14 @@ export async function processPbVisionFailureAfterDeliveryError(
 ): Promise<void> {
   const request = await loadPbVisionRequest(requestId);
   if (!request || refundCompleted(request.refund_status)) {
+    return;
+  }
+
+  if (request.shared_from_request_id) {
+    await processPbVisionFailureAfterDeliveryError(
+      request.shared_from_request_id,
+      reason
+    );
     return;
   }
 
@@ -543,6 +586,16 @@ export async function runPbVisionSubmissionAttempt({
     });
   }
 
+  const attached = await tryAttachPbVisionRequestToExistingClipSubmission({
+    requestId,
+    clipId: request.clip_id,
+    purchaserEmail: accessEmail,
+  });
+
+  if (attached) {
+    return attached;
+  }
+
   if (
     shouldAutoRefundPbVision(source) &&
     request.submission_attempt_count >= MAX_PB_VISION_SUBMISSION_ATTEMPTS
@@ -592,9 +645,11 @@ export async function runPbVisionSubmissionAttempt({
     return {
       ok: false,
       status: hdResolved.status,
-      error: exhausted
-        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
-        : hdResolved.error,
+      error: customerFacingAttemptError(
+        hdResolved.error,
+        source,
+        exhausted
+      ),
       exhausted,
     };
   }
@@ -612,9 +667,7 @@ export async function runPbVisionSubmissionAttempt({
     return {
       ok: false,
       status: 400,
-      error: exhausted
-        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
-        : message,
+      error: customerFacingAttemptError(message, source, exhausted),
       exhausted,
     };
   }
@@ -623,7 +676,11 @@ export async function runPbVisionSubmissionAttempt({
   if (!clip) {
     const message = 'Clip not found';
     await markPbVisionSubmissionFailed(requestId, message);
-    return { ok: false, status: 404, error: message };
+    return {
+      ok: false,
+      status: 404,
+      error: customerFacingAttemptError(message, source),
+    };
   }
 
   const { facility, court } = await fetchClubCourtNames(access.clip_id);
@@ -647,9 +704,7 @@ export async function runPbVisionSubmissionAttempt({
     return {
       ok: false,
       status: 400,
-      error: exhausted
-        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
-        : message,
+      error: customerFacingAttemptError(message, source, exhausted),
       exhausted,
     };
   }
@@ -693,9 +748,7 @@ export async function runPbVisionSubmissionAttempt({
     return {
       ok: false,
       status: 502,
-      error: exhausted
-        ? 'PB Vision analysis could not be completed after multiple attempts. A refund has been issued.'
-        : reason,
+      error: customerFacingAttemptError(reason, source, exhausted),
       exhausted,
     };
   }
@@ -720,6 +773,24 @@ export async function runPbVisionSubmissionAttempt({
       error: updateError.message,
     });
     return { ok: false, status: 500, error: 'Failed to save PB Vision request' };
+  }
+
+  await updateSharedRequestsForPrimaryVid({
+    primaryRequestId: requestId,
+    pbvVid,
+    status: 'submitted',
+    sourceS3Key: s3Key,
+    submittedAt,
+  });
+
+  try {
+    await syncPbVisionEditorsForVid(pbvVid);
+  } catch (syncError) {
+    console.error('[PB Vision] Failed to sync editors after primary submit', {
+      request_id: requestId,
+      pbv_vid: pbvVid,
+      error: syncError instanceof Error ? syncError.message : syncError,
+    });
   }
 
   console.log('[PB Vision] Video submitted', {
@@ -772,6 +843,7 @@ export async function resetPbVisionRequestAfterRepurchase(
       pbv_vid: null,
       pbv_webpage_url: null,
       pbv_from_url: null,
+      shared_from_request_id: null,
       submitted_at: null,
       completed_at: null,
       callback_received_at: null,
