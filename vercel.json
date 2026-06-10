@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "app/api/admin/pb-vision-requests/reset/route.ts": {
+      "maxDuration": 300,
+      "memory": 3009
+    },
+    "app/api/player-trove/pb-vision/request/route.ts": {
+      "maxDuration": 300,
+      "memory": 3009
+    }
+  }
+}

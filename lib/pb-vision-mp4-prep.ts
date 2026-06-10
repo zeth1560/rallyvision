@@ -1,80 +1,20 @@
-import { spawn } from 'node:child_process';
-import { createReadStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import ffmpegPath from 'ffmpeg-static';
+import { createRequire } from 'node:module';
 import {
-  createSignedMp4FetchUrl,
   deleteS3Object,
+  downloadS3ObjectToTempFile,
   getS3ObjectContentLength,
   MAX_PBV_DIRECT_UPLOAD_BYTES,
-  s3,
   uploadLocalFileToS3,
 } from '@/lib/s3';
 
-const REMUX_TIMEOUT_MS = 4 * 60 * 1000;
-
-function runFfmpegFaststartRemux(inputUrl: string, outputPath: string): Promise<void> {
-  if (!ffmpegPath) {
-    return Promise.reject(new Error('ffmpeg binary is not available'));
-  }
-
-  const executablePath = ffmpegPath;
-
-  return new Promise((resolve, reject) => {
-    const stderrChunks: string[] = [];
-    const proc = spawn(
-      executablePath,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        inputUrl,
-        '-c',
-        'copy',
-        '-movflags',
-        '+faststart',
-        '-y',
-        outputPath,
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] }
-    );
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGKILL');
-      reject(new Error('Timed out preparing MP4 for PB Vision'));
-    }, REMUX_TIMEOUT_MS);
-
-    proc.stderr.on('data', (chunk: Buffer) => {
-      stderrChunks.push(chunk.toString('utf8'));
-    });
-
-    proc.on('error', (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-
-    proc.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      const details = stderrChunks.join('').trim();
-      reject(
-        new Error(
-          details
-            ? `Failed to prepare MP4 for PB Vision: ${details}`
-            : `Failed to prepare MP4 for PB Vision (ffmpeg exit ${code ?? 'unknown'})`
-        )
-      );
-    });
-  });
-}
+const require = createRequire(import.meta.url);
+const { faststart } = require('moov-faststart') as {
+  faststart: (input: Buffer) => Buffer;
+};
 
 export async function preparePbVisionStreamableCopy(sourceKey: string): Promise<{
   stagingKey: string;
@@ -89,18 +29,35 @@ export async function preparePbVisionStreamableCopy(sourceKey: string): Promise<
 
   const stagingKey = `pbv-prep/${randomUUID()}.mp4`;
   const outputPath = join(tmpdir(), `pbv-prep-${randomUUID()}.mp4`);
-  const signedInputUrl = await createSignedMp4FetchUrl(sourceKey, 60 * 60);
 
-  console.log('[PB Vision] Remuxing MP4 with faststart for streamable metadata', {
+  console.log('[PB Vision] Reordering MP4 moov atom for streamable metadata', {
     source_key: sourceKey,
     staging_key: stagingKey,
     content_length: contentLength,
   });
 
+  const { filePath: inputPath, cleanup: cleanupInput } =
+    await downloadS3ObjectToTempFile(sourceKey);
+
   try {
-    await runFfmpegFaststartRemux(signedInputUrl, outputPath);
+    const inputBuffer = await readFile(inputPath);
+    await rm(inputPath, { force: true });
+
+    let outputBuffer: Buffer;
+    try {
+      outputBuffer = faststart(inputBuffer);
+    } catch (error) {
+      throw new Error(
+        `Failed to prepare MP4 for PB Vision: ${
+          error instanceof Error ? error.message : 'invalid MP4 container'
+        }`
+      );
+    }
+
+    await writeFile(outputPath, outputBuffer);
     await uploadLocalFileToS3(stagingKey, outputPath);
   } finally {
+    await cleanupInput();
     await rm(outputPath, { force: true });
   }
 
