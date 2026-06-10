@@ -29,6 +29,7 @@ type ClipMetadata = {
   slug: string | null;
   recorded_at: string | null;
   created_at: string | null;
+  duration_seconds: number | null;
 };
 
 type AccessRow = {
@@ -50,7 +51,7 @@ function epochSecondsFromIso(iso: string | null | undefined) {
 async function fetchClipMetadata(clipId: string): Promise<ClipMetadata | null> {
   const { data, error } = await supabaseAdmin
     .from('clips')
-    .select('title, slug, recorded_at, created_at')
+    .select('title, slug, recorded_at, created_at, duration_seconds')
     .eq('id', clipId)
     .single();
 
@@ -104,6 +105,10 @@ function buildPbVisionMetadata({
 }): PBVisionSubmitMetadata {
   const gameStartEpoch =
     epochSecondsFromIso(clip.recorded_at) ?? epochSecondsFromIso(clip.created_at);
+  const videoSecs =
+    clip.duration_seconds != null && clip.duration_seconds > 0
+      ? Math.round(clip.duration_seconds)
+      : undefined;
 
   return {
     userEmails: [email],
@@ -112,6 +117,7 @@ function buildPbVisionMetadata({
     facility,
     court,
     desc: `ReplayTrove PlayerTrove access ${accessId} · request ${requestId}`,
+    videoSecs,
   };
 }
 
@@ -523,6 +529,17 @@ export async function runPbVisionSubmissionAttempt({
     facility,
     court,
   });
+
+  if (metadata.videoSecs == null) {
+    const message = 'Video duration is required for PB Vision analysis';
+    await handlePbVisionDeliveryFailure(requestId, message);
+    return {
+      ok: false,
+      status: 400,
+      error: message,
+      exhausted: attemptNumber >= MAX_PB_VISION_SUBMISSION_ATTEMPTS,
+    };
+  }
 
   let signedUrl: string;
   try {
