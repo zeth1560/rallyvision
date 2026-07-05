@@ -167,6 +167,18 @@ export default function Home() {
             Contact Us
           </a>
         </section>
+
+        <footer className="flex flex-col gap-4 border-t border-slate-200 pt-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>© {new Date().getFullYear()} ReplayTrove</p>
+          <nav className="flex flex-wrap gap-4">
+            <a href="/privacy" className="hover:text-slate-950">
+              Privacy Policy
+            </a>
+            <a href="/terms" className="hover:text-slate-950">
+              Terms of Service
+            </a>
+          </nav>
+        </footer>
       </div>
     </main>
   );
